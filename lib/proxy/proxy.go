@@ -1,0 +1,263 @@
+package proxy
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"golang.org/x/net/http/httpguts"
+	log "log/slog"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var redirectRegex = regexp.MustCompile(`^(201|30([1278]))$`)
+
+// Server field TargetForReq should be non-nil
+type Server struct {
+	Secure          bool              // verify SSL certificate
+	IncludePrefix   bool              // include prefix in proxy path
+	PrependPath     bool              // prepend target path to proxy path
+	ChangeOrigin    bool              // change origin to target host, use requested host if not
+	Xfwd            bool              // adds x-forward headers
+	Headers         map[string]string // extra headers to proxy request
+	AutoRewrite     bool              // rewrites the location on (201/301/302/307/308) redirects based on requested host/port
+	ProtocolRewrite string            // rewrites the location on (201/301/302/307/308) redirects to 'http' or 'https'
+	ProxyTimeout    int               // http request timeout in milliseconds
+
+	ErrorHandler func(code int, kind string, w http.ResponseWriter, r *http.Request, err error)
+
+	TargetForReq       func(host, path string) (Target, bool)
+	UpdateLastActivity func(path string)
+
+	proxy *httputil.ReverseProxy
+}
+
+type Target struct {
+	Target string // target url
+	Prefix string // prefix path
+}
+
+func (s *Server) Handler() http.HandlerFunc {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: s.Secure,
+	}
+	s.proxy = &httputil.ReverseProxy{
+		Rewrite:        s.rewrite,
+		Transport:      transport,
+		ModifyResponse: s.modifyResponse,
+		ErrorHandler: func(writer http.ResponseWriter, request *http.Request, err error) {
+			code := http.StatusBadGateway
+			if errors.Is(err, context.DeadlineExceeded) {
+				code = http.StatusGatewayTimeout
+			}
+			s.getErrorHandler()(code, proxyKind(request), writer, request, err)
+		},
+	}
+	return s.serve
+}
+
+// rewrite request url, pr.Out and pr.In share the same context
+func (s *Server) rewrite(pr *httputil.ProxyRequest) {
+	target := pr.In.Context().Value("target").(*url.URL)
+
+	// clean path if not prependPath before SetURL
+	if !s.PrependPath {
+		target = cloneURL(target)
+		target.Path = ""
+		target.RawPath = ""
+	}
+	// set host header for redirect
+	if s.ChangeOrigin {
+		port, isFromHost := urlPort(target)
+		if !isFromHost && port != defaultPort(target.Scheme) {
+			pr.Out.Header.Set("Host", target.Host+":"+strconv.Itoa(port))
+		} else {
+			pr.Out.Header.Set("Host", target.Host)
+		}
+	} else {
+		pr.Out.Header.Set("Host", pr.In.Host)
+	}
+	pr.SetURL(target)
+	// fix reverseproxy.rewriteRequestURL slash suffix: a=b="" -> ""
+	if pr.In.URL.Path == "" {
+		pr.Out.URL.Path = target.Path
+	}
+
+	if s.Xfwd {
+		pr.SetXForwarded()
+	}
+	for k, v := range s.Headers {
+		pr.Out.Header.Set(k, v)
+	}
+}
+
+func (s *Server) modifyResponse(r *http.Response) error {
+	prefix := r.Request.Context().Value("prefix").(string)
+	if r.StatusCode < 300 {
+		s.updateLastActivity(prefix)
+	} else {
+		log.Debug(fmt.Sprintf("Not recording activity for status %d on %s", r.StatusCode, prefix))
+	}
+	if s.AutoRewrite && r.Header.Get("Location") != "" && redirectRegex.MatchString(strconv.Itoa(r.StatusCode)) {
+		redirectTo, err := url.Parse(r.Header.Get("Location"))
+		if err != nil {
+			return fmt.Errorf("failed to parse Location header: %v", err)
+		}
+		if redirectTo.Host != r.Request.URL.Host {
+			return nil
+		}
+		if host := r.Request.Header.Get("Host"); host != "" {
+			redirectTo.Host = host
+		}
+		if s.ProtocolRewrite != "" {
+			redirectTo.Scheme = s.ProtocolRewrite
+		}
+		r.Header.Set("Location", redirectTo.String())
+	}
+	return nil
+}
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	kind := proxyKind(r)
+	defer func() {
+		if err := recover(); err != nil {
+			s.getErrorHandler()(404, kind, w, r, nil)
+		}
+	}()
+	// notes: r.URL.Path already PathUnescape
+	targetInfo, exists := s.TargetForReq(parseHost(r), r.URL.Path)
+	if !exists {
+		s.getErrorHandler()(404, kind, w, r, nil)
+		return
+	}
+	defer s.updateLastActivity(targetInfo.Prefix)
+	// websocket 时此处会先
+	targetUrlRaw := targetInfo.Target
+	log.Debug(fmt.Sprintf("PROXY %s %s to %s", kind, r.URL, targetUrlRaw))
+	targetUrl, err := url.Parse(targetUrlRaw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !s.IncludePrefix {
+		r.URL.Path, _ = strings.CutPrefix(r.URL.Path, targetInfo.Prefix)
+	}
+
+	ctx := r.Context()
+	// http proxy request timeout, pr.Out and pr.In share the same context
+	if kind == "http" && s.ProxyTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.ProxyTimeout)*time.Millisecond)
+		defer cancel()
+	}
+	ctx = context.WithValue(ctx, "target", targetUrl)
+	ctx = context.WithValue(ctx, "prefix", targetInfo.Prefix)
+
+	rn := r.WithContext(ctx)
+	s.handleHttp(w, rn)
+}
+
+// proxyKind returns the kind of proxy to use, ws or http
+func proxyKind(r *http.Request) string {
+	if httpguts.HeaderValuesContainsToken(r.Header["Connection"], "Upgrade") &&
+		httpguts.HeaderValuesContainsToken(r.Header["Upgrade"], "websocket") {
+		return "ws"
+	}
+
+	return "http"
+}
+
+func (s *Server) updateLastActivity(path string) {
+	if s.UpdateLastActivity != nil {
+		s.UpdateLastActivity(path)
+	}
+}
+
+func (s *Server) handleHttp(w http.ResponseWriter, r *http.Request) {
+	if healthCheck(w, r) {
+		return
+	}
+
+	s.proxy.ServeHTTP(w, r)
+}
+
+func (s *Server) getErrorHandler() func(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
+	if s.ErrorHandler != nil {
+		return s.ErrorHandler
+	}
+	return s.defaultErrorHandler
+}
+
+func (s *Server) defaultErrorHandler(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
+	var errMsg string
+	if err != nil {
+		errMsg = err.Error()
+	}
+	log.Error(fmt.Sprintf("%d %s %s %s", code, r.Method, r.URL.Path, errMsg))
+	if w == nil {
+		log.Debug("Socket error, no response to send")
+		return
+	}
+	w.WriteHeader(code)
+	w.Write([]byte(http.StatusText(code)))
+}
+
+// health check, url: /_chp_healthz
+func healthCheck(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/_chp_healthz" {
+		w.Header().Set("Content-Type", "application/json")
+		//w.WriteHeader(http.StatusOK) // unnecessary
+		w.Write([]byte(`{"status": "OK"}`))
+		return true
+	}
+	return false
+}
+
+func parseHost(r *http.Request) string {
+	host, _, _ := net.SplitHostPort(r.Host)
+	// never err, ignore...
+	return host
+}
+
+func cloneURL(u *url.URL) *url.URL {
+	if u == nil {
+		return nil
+	}
+	u2 := new(url.URL)
+	*u2 = *u
+	if u.User != nil {
+		u2.User = new(url.Userinfo)
+		*u2.User = *u.User
+	}
+	return u2
+}
+
+// urlPort returns the port and whether it comes from url.host
+func urlPort(u *url.URL) (int, bool) {
+	portRaw := u.Port()
+	if portRaw != "" {
+		port, _ := strconv.Atoi(portRaw)
+		return port, true
+	}
+	return defaultPort(u.Scheme), false
+}
+
+func defaultPort(protocol string) int {
+	switch strings.ToLower(protocol) {
+	case "http", "ws":
+		return 80
+	case "https", "wss":
+		return 443
+	default:
+		return 0
+	}
+}
