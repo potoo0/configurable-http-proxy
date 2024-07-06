@@ -1,0 +1,56 @@
+name: build
+
+# Trigger the workflow on push or pull request
+on:
+  push:
+    branches: [ 'main' ]
+  pull_request:
+    branches: [ 'main' ]
+  workflow_dispatch:
+    inputs:
+      manual:
+        description: Manual run (bypass default conditions)
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+        go-version: [ '1.22' ]
+    name: Build
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          make build
+  lint:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+        go-version: [ '1.22' ]
+    name: Lint
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
