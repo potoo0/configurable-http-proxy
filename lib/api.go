@@ -82,7 +82,7 @@ func (server *ApiServer) addRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	// check target
 	var target any
-	targetValid := true
+	var targetValid bool
 	if target, targetValid = data["target"]; targetValid {
 		_, targetValid = target.(string)
 	}

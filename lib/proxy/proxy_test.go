@@ -27,7 +27,7 @@ func TestProxy_rewrite(t *testing.T) {
 	serverUrl := mustParse(t, serverUrlRaw)
 	target := mustParse(t, "https://httpbin.org/get")
 
-	ctx := context.WithValue(context.Background(), "target", target)
+	ctx := context.WithValue(context.Background(), ctxTargetKey{}, target)
 	req, err := http.NewRequestWithContext(ctx, "GET", serverUrlRaw+prefix, nil)
 	if err != nil {
 		t.Fatalf("http.NewRequestWithContext error: %v", err)
@@ -105,6 +105,7 @@ func TestProxy_redirect(t *testing.T) {
 
 	serverUrl := mustParse(t, reqUrlRaw)
 	ctx := context.Background()
+	ctx = context.WithValue(ctx, ctxPrefixKey{}, serverUrl.Path)
 
 	reqHeader := http.Header{}
 	reqHeader.Set("Host", serverUrl.Host)

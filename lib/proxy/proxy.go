@@ -19,6 +19,11 @@ import (
 
 var redirectRegex = regexp.MustCompile(`^(201|30([1278]))$`)
 
+type (
+	ctxTargetKey struct{}
+	ctxPrefixKey struct{}
+)
+
 // Server field TargetForReq should be non-nil
 type Server struct {
 	Secure          bool              // verify SSL certificate
@@ -66,7 +71,7 @@ func (s *Server) Handler() http.HandlerFunc {
 
 // rewrite request url, pr.Out and pr.In share the same context
 func (s *Server) rewrite(pr *httputil.ProxyRequest) {
-	target := pr.In.Context().Value("target").(*url.URL)
+	target := pr.In.Context().Value(ctxTargetKey{}).(*url.URL)
 
 	// clean path if not prependPath before SetURL
 	if !s.PrependPath {
@@ -100,7 +105,7 @@ func (s *Server) rewrite(pr *httputil.ProxyRequest) {
 }
 
 func (s *Server) modifyResponse(r *http.Response) error {
-	prefix := r.Request.Context().Value("prefix").(string)
+	prefix := r.Request.Context().Value(ctxPrefixKey{}).(string)
 	if r.StatusCode < 300 {
 		s.updateLastActivity(prefix)
 	} else {
@@ -159,8 +164,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.ProxyTimeout)*time.Millisecond)
 		defer cancel()
 	}
-	ctx = context.WithValue(ctx, "target", targetUrl)
-	ctx = context.WithValue(ctx, "prefix", targetInfo.Prefix)
+	ctx = context.WithValue(ctx, ctxTargetKey{}, targetUrl)
+	ctx = context.WithValue(ctx, ctxPrefixKey{}, targetInfo.Prefix)
 
 	rn := r.WithContext(ctx)
 	s.handleHttp(w, rn)

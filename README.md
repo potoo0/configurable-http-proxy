@@ -14,7 +14,7 @@ go install github.com/potoo0/configurable-http-proxy
 
 ### Release
 
-Download the latest release from the [releases page]()
+Download the latest release from the releases page.
 
 ## Features
 

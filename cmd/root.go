@@ -102,7 +102,7 @@ func run(cmd *cobra.Command, args []string) {
 	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.Ssl),
 		defaultIfEmpty(listenerCfg.apiIp, "*"), listenerCfg.apiPort))
 	if listenerCfg.metricsPort != 0 {
-		log.Warn(fmt.Sprintf("Metrics server not implemented yet"))
+		log.Warn("Metrics server not implemented yet")
 		//log.Info(fmt.Sprintf("Serve metrics at %s://%s:%d/metrics", "http", listenerCfg.metricsIp, listenerCfg.metricsPort))
 	}
 

@@ -1,0 +1,35 @@
+name: release
+
+on:
+  release:
+    types: [ created ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest ]
+        goos: [ linux, windows, darwin ]
+        goarch: [ amd64, arm64 ]
+        exclude:
+          - goarch: arm64
+            goos: windows
+    name: Release
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Show environment
+        run: export
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: go release matrix
+        uses: wangyoucao577/go-release-action@v1.51
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goversion: "go.mod"
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          build_command: "make all"
+          extra_files: README.md LICENSE

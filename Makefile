@@ -1,12 +1,17 @@
+LDFLAGS =
+
+# project info
 PACKAGE		:= $(shell go list)
 PACKAGES	:= $(shell go list ./...)
 BINARY_NAME := $(shell basename $(PACKAGE))
 
+# commit info
 COMMIT_SHA	:= $(shell git rev-parse HEAD)
 TAG 		:= $(shell git describe --tags --abbrev=0)
 
 # embed version info into binary
-LDFLAGS = -ldflags "-X main.Tag=$(TAG) -X main.Build=$(COMMIT_SHA)"
+LDFLAGS += -X main.Tag=$(TAG)
+LDFLAGS += -X main.Build=$(COMMIT_SHA)
 
 GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
@@ -14,8 +19,9 @@ WHITE  := $(shell tput -Txterm setaf 7)
 CYAN   := $(shell tput -Txterm setaf 6)
 RESET  := $(shell tput -Txterm sgr0)
 
-.PHONY: help tidy dep build clean
+.PHONY: help tidy dep vet test build clean
 default: help
+all: test build
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "${YELLOW}%-16s${GREEN}%s${RESET}\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -26,8 +32,16 @@ tidy: ## Tidy up the go modules
 dep: tidy ## Install dependencies
 	@go mod download
 
+vet: dep ## Run go vet
+	@go vet ./...
+
+test: dep ## Run
+	@go test -v ./... -short 2>&1 | tee test.log
+	@echo "Written logs in test.log"
+
 build: dep ## Build the binary file
-	@go build -o build/$(BINARY_NAME) $(LDFLAGS)
+	@go build -o $(BINARY_NAME) -ldflags '$(LDFLAGS)'
 
 clean: ## Remove previous build
-	@rm -rf build
+	@go clean ./...
+	@rm -f test.log $(BINARY_NAME)
