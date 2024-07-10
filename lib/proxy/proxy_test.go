@@ -20,6 +20,14 @@ func muteLog() {
 	slog.SetDefault(log)
 }
 
+func TestProxyKind(t *testing.T) {
+	req, _ := http.NewRequest("GET", "http://localhost", nil)
+	assert.Equal(t, "http", proxyKind(req))
+	req.Header.Set("Connection", "Upgrade, x, y")
+	req.Header.Set("Upgrade", "websocket, a, b")
+	assert.Equal(t, "ws", proxyKind(req))
+}
+
 func TestProxy_rewrite(t *testing.T) {
 	muteLog()
 	prefix := "/prefix"

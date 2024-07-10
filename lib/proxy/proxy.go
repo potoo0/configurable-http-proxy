@@ -2,10 +2,8 @@ package proxy
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"golang.org/x/net/http/httpguts"
 	log "log/slog"
 	"net"
 	"net/http"
@@ -36,6 +34,7 @@ type Server struct {
 	ProtocolRewrite string            // rewrites the location on (201/301/302/307/308) redirects to 'http' or 'https'
 	ProxyTimeout    int               // http request timeout in milliseconds
 
+	Client       *http.Client
 	ErrorHandler func(code int, kind string, w http.ResponseWriter, r *http.Request, err error)
 
 	TargetForReq       func(host, path string) (Target, bool)
@@ -50,9 +49,9 @@ type Target struct {
 }
 
 func (s *Server) Handler() http.HandlerFunc {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: s.Secure,
+	var transport http.RoundTripper
+	if s.Client != nil {
+		transport = s.Client.Transport
 	}
 	s.proxy = &httputil.ReverseProxy{
 		Rewrite:        s.rewrite,
@@ -173,12 +172,23 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 // proxyKind returns the kind of proxy to use, ws or http
 func proxyKind(r *http.Request) string {
-	if httpguts.HeaderValuesContainsToken(r.Header["Connection"], "Upgrade") &&
-		httpguts.HeaderValuesContainsToken(r.Header["Upgrade"], "websocket") {
+	if headerValuesContainsToken(r.Header["Connection"], "Upgrade") &&
+		headerValuesContainsToken(r.Header["Upgrade"], "websocket") {
 		return "ws"
 	}
 
 	return "http"
+}
+
+func headerValuesContainsToken(values []string, token string) bool {
+	for _, v := range values {
+		for _, actual := range strings.Split(v, ",") {
+			if strings.TrimSpace(actual) == token {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Server) updateLastActivity(path string) {
