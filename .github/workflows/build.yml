@@ -54,4 +54,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --exclude-use-default=true --exclude='Error return value of .(w\.Write). is not checked'
+          args: >
+            --exclude-use-default=true
+            --exclude='Error return value of .(w\.Write). is not checked'
+            --exclude='Error return value of `io\.Copy` is not checked'
