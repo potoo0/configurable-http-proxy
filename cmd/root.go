@@ -220,7 +220,7 @@ func init() {
 	rootCmd.Flags().IntVar(&listenerCfg.redirectPort, "redirect-port", 0, "Redirect HTTP requests on this port to the server on HTTPS")
 	rootCmd.Flags().IntVar(&listenerCfg.redirectTo, "redirect-to", 0, "Redirect HTTP requests from --redirect-port to this port")
 	rootCmd.Flags().IntVar(&listenerCfg.timeout, "timeout", 0, "Timeout (in millis) when proxy drops connection for a request.")
-	rootCmd.Flags().IntVar(&listenerCfg.keepAliveTimeout, "keep-alive-timeout", 0, "Set timeout (in milliseconds) for Keep-Alive connections")
+	rootCmd.Flags().IntVar(&listenerCfg.keepAliveTimeout, "keep-alive-timeout", 5000, "Set timeout (in milliseconds) for Keep-Alive connections")
 
 	// ssl
 	rootCmd.Flags().StringVar(&sslKey, "ssl-key", "", "SSL key to use, if any")
