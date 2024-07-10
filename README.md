@@ -23,7 +23,7 @@ Download the latest release from the releases page.
 Basically synchronized with nodejs version.
 
 Ignored SSL args:
-- `--ssl-ciphers`: hard to convert openssl cipher strings to golang's cipher suites, use golang's default ciphers
+- `--ssl-ciphers`: hard to convert openssl cipher strings to golang's cipher suites, use golang's default cipher suites
 - `--ssl-dhparam`: Diffie-Hellman parameters is not supported in golang's tls package
 
 Missing features (yet):
