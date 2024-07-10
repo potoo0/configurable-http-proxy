@@ -19,7 +19,7 @@ type ConfigurableProxy struct {
 	hostRouting bool
 	errorTarget string
 	errorPath   string
-	clientSsl   *SslConfig
+	client      *http.Client
 
 	routes BaseStore
 
@@ -34,8 +34,8 @@ func loadStorage(options *Config) *MemoryStore {
 	return NewMemoryStore()
 }
 
-func NewConfigurableProxy(config *Config) *ConfigurableProxy {
-	var instance = &ConfigurableProxy{clientSsl: config.ClientSsl}
+func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
+	var instance = new(ConfigurableProxy)
 	instance.routes = loadStorage(config)
 	instance.authToken = config.AuthToken
 	instance.hostRouting = config.HostRouting
@@ -44,6 +44,15 @@ func NewConfigurableProxy(config *Config) *ConfigurableProxy {
 
 	if config.DefaultTarget != "" {
 		instance.addRoute("/", map[string]any{"target": config.DefaultTarget})
+	}
+	if config.ClientSsl != nil {
+		tlsConfig, err := config.ClientSsl.TlsConfig(false)
+		if err != nil {
+			return nil, fmt.Errorf("parsing client ssl error: %w", err)
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConfig
+		instance.client = &http.Client{Transport: transport}
 	}
 
 	instance.ApiServer = NewApiServer(instance)
@@ -59,13 +68,13 @@ func NewConfigurableProxy(config *Config) *ConfigurableProxy {
 		ProtocolRewrite: config.ProtocolRewrite,
 		ProxyTimeout:    config.ProxyTimeout,
 
+		Client:       instance.client,
 		ErrorHandler: instance.handleProxyError,
 
 		TargetForReq:       instance.targetForReq,
 		UpdateLastActivity: instance.updateLastActivity,
 	}
-	// go http.Client enable keepalive by default
-	return instance
+	return instance, nil
 }
 
 func (p *ConfigurableProxy) handleProxyError(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
@@ -115,12 +124,15 @@ func (p *ConfigurableProxy) handleErrorTarget(code int, kind string, w http.Resp
 	}
 	log.Debug(fmt.Sprintf("Requesting custom error page: %s", urlSpec.String()))
 
-	// todo client ssl
+	client := p.client
+	if client == nil {
+		client = http.DefaultClient
+	}
 	req, err := http.NewRequestWithContext(r.Context(), "GET", urlSpec.String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to new request for error target: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to get custom error page: %w", err)
 	}

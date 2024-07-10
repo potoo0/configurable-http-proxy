@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"github.com/potoo0/configurable-http-proxy/lib"
 	"github.com/spf13/cobra"
@@ -92,14 +93,25 @@ and CONFIGPROXY_AUTH_TOKEN to set a token for REST API authentication.`,
 func run(cmd *cobra.Command, args []string) {
 	options := initConfig()
 
-	proxy := lib.NewConfigurableProxy(options)
-	go listen(options.Ssl, listenerCfg.ip, listenerCfg.port, proxy.ProxyServer.Handler())
-	go listen(options.ApiSsl, listenerCfg.apiIp, listenerCfg.apiPort, proxy.ApiServer.Handler())
+	proxy, err := lib.NewConfigurableProxy(options)
+	if err != nil {
+		panic(err)
+	}
+	proxyTlsCfg, err := tlsConfig(options.Ssl)
+	if err != nil {
+		panic(fmt.Errorf("parsing proxy ssl error: %w", err))
+	}
+	apiTlsCfg, err := tlsConfig(options.ApiSsl)
+	if err != nil {
+		panic(fmt.Errorf("parsing api ssl error: %w", err))
+	}
+	go listen(proxyTlsCfg, listenerCfg.ip, listenerCfg.port, proxy.ProxyServer.Handler())
+	go listen(apiTlsCfg, listenerCfg.apiIp, listenerCfg.apiPort, proxy.ApiServer.Handler())
 
 	log.Info(fmt.Sprintf("Proxying %s://%s:%d to %s", schema(options.Ssl),
 		defaultIfEmpty(listenerCfg.ip, "*"), listenerCfg.port,
 		defaultIfEmpty(options.DefaultTarget, "(no default)")))
-	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.Ssl),
+	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.ApiSsl),
 		defaultIfEmpty(listenerCfg.apiIp, "*"), listenerCfg.apiPort))
 	if listenerCfg.metricsPort != 0 {
 		log.Warn("Metrics server not implemented yet")
@@ -159,20 +171,23 @@ func defaultIfEmpty(s, d string) string {
 
 func schema(ssl *lib.SslConfig) string {
 	if ssl == nil {
-		return "https"
+		return "http"
 	}
-	return "http"
+	return "https"
 }
 
-func listen(ssl *lib.SslConfig, ip string, port int, handler http.Handler) {
+func listen(tlsConfig *tls.Config, ip string, port int, handler http.Handler) {
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", ip, port),
 		Handler: handler,
 	}
-	// todo
-	//if ssl != nil {
-	//	server.TLSConfig = &tls.Config{}
-	//}
+	if tlsConfig != nil {
+		server.TLSConfig = tlsConfig
+		if err := server.ListenAndServeTLS("", ""); err != nil {
+			panic(err)
+		}
+		return
+	}
 	if err := server.ListenAndServe(); err != nil {
 		panic(err)
 	}
@@ -273,18 +288,13 @@ func initConfig() *lib.Config {
 	// ssl cfg
 	if sslKey != "" || sslCert != "" {
 		cfg.Ssl = new(lib.SslConfig)
-		if sslKey != "" {
-			cfg.Ssl.Key = readFilePanicIfErr(sslKey)
-			cfg.Ssl.Passphrase = os.Getenv("CONFIGPROXY_SSL_KEY_PASSPHRASE")
-		}
+		cfg.Ssl.Key = readFilePanicIfErr(sslKey)
+		cfg.Ssl.Passphrase = os.Getenv("CONFIGPROXY_SSL_KEY_PASSPHRASE")
 		cfg.Ssl.Cert = readFilePanicIfErr(sslCert)
 		cfg.Ssl.Ca = readFilePanicIfErr(sslCa)
 		cfg.Ssl.Dhparam = readFilePanicIfErr(sslDhparam)
-		if sslProtocol != "" {
-			cfg.Ssl.SecureProtocol = sslProtocol + "_method"
-		}
+		cfg.Ssl.SecureProtocol = sslProtocol
 		cfg.Ssl.Ciphers = sslCiphers
-		cfg.Ssl.HonorCipherOrder = true
 		cfg.Ssl.RequestCert = sslRequestCert
 		cfg.Ssl.RejectUnauthorized = sslRejectUnauthorized
 	}
@@ -292,18 +302,13 @@ func initConfig() *lib.Config {
 	// ssl cfg for the API interface
 	if apiSslKey != "" || apiSslCert != "" {
 		cfg.ApiSsl = new(lib.SslConfig)
-		if apiSslKey != "" {
-			cfg.ApiSsl.Key = readFilePanicIfErr(apiSslKey)
-			cfg.ApiSsl.Passphrase = os.Getenv("CONFIGPROXY_API_SSL_KEY_PASSPHRASE")
-		}
+		cfg.ApiSsl.Key = readFilePanicIfErr(apiSslKey)
+		cfg.ApiSsl.Passphrase = os.Getenv("CONFIGPROXY_API_SSL_KEY_PASSPHRASE")
 		cfg.ApiSsl.Cert = readFilePanicIfErr(apiSslCert)
-		cfg.ApiSsl.Ca = loadSslCa(apiSslCa)
+		cfg.ApiSsl.Ca = readFilePanicIfErr(apiSslCa)
 		cfg.ApiSsl.Dhparam = readFilePanicIfErr(sslDhparam)
-		if sslProtocol != "" {
-			cfg.ApiSsl.SecureProtocol = sslProtocol + "_method"
-		}
+		cfg.ApiSsl.SecureProtocol = sslProtocol
 		cfg.ApiSsl.Ciphers = sslCiphers
-		cfg.ApiSsl.HonorCipherOrder = true
 		cfg.ApiSsl.RequestCert = apiSslRequestCert
 		cfg.ApiSsl.RejectUnauthorized = apiSslRejectUnauthorized
 	}
@@ -313,13 +318,10 @@ func initConfig() *lib.Config {
 		cfg.ClientSsl = new(lib.SslConfig)
 		cfg.ClientSsl.Key = readFilePanicIfErr(clientSslKey)
 		cfg.ClientSsl.Cert = readFilePanicIfErr(clientSslCert)
-		cfg.ClientSsl.Ca = loadSslCa(clientSslCa)
+		cfg.ClientSsl.Ca = readFilePanicIfErr(clientSslCa)
 		cfg.ClientSsl.Dhparam = readFilePanicIfErr(sslDhparam)
-		if sslProtocol != "" {
-			cfg.ClientSsl.SecureProtocol = sslProtocol + "_method"
-		}
+		cfg.ClientSsl.SecureProtocol = sslProtocol
 		cfg.ClientSsl.Ciphers = sslCiphers
-		cfg.ClientSsl.HonorCipherOrder = true
 		cfg.ClientSsl.RequestCert = clientSslRequestCert
 		cfg.ClientSsl.RejectUnauthorized = clientSslRejectUnauthorized
 	}
@@ -400,13 +402,6 @@ func readFilePanicIfErr(name string) []byte {
 	return bytes
 }
 
-func loadSslCa(name string) []byte {
-	if name == "" {
-		return nil
-	}
-	return nil
-}
-
 func headersMap(headers []string) map[string]string {
 	m := make(map[string]string)
 	for _, header := range headers {
@@ -437,4 +432,11 @@ func writePidFile(pidFile string) error {
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
 	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+}
+
+func tlsConfig(sslConfig *lib.SslConfig) (*tls.Config, error) {
+	if sslConfig == nil {
+		return nil, nil
+	}
+	return sslConfig.TlsConfig(true)
 }

@@ -3,6 +3,7 @@ package lib
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +25,8 @@ func TestErrorHandler(t *testing.T) {
 	})))
 
 	status := 400
-	p := NewConfigurableProxy(new(Config))
+	p, err := NewConfigurableProxy(new(Config))
+	assert.NoError(t, err)
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:8080/get", nil)
 	if err != nil {
@@ -64,4 +66,37 @@ func TestErrorHandler(t *testing.T) {
 		assert.Equal(t, status, resp.Code)
 		assert.Equal(t, msg, resp.Body.String())
 	})
+}
+
+func TestNewConfigurableProxy(t *testing.T) {
+	cfg := SslConfig{
+		Key:        LocalhostKey,
+		Passphrase: "1234",
+		Cert:       LocalhostCert,
+		Ca:         RootCert,
+	}
+
+	// build target server
+	targetServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//t.Logf("http request uri: %s", r.RequestURI)
+		w.WriteHeader(http.StatusOK)
+	}))
+	tlsConfig, err := cfg.TlsConfig(true)
+	assert.Nil(t, err)
+	targetServer.TLS = tlsConfig
+	targetServer.StartTLS()
+	defer targetServer.Close()
+
+	config := &Config{
+		DefaultTarget: targetServer.URL,
+		ClientSsl:     &cfg,
+	}
+	p, err := NewConfigurableProxy(config)
+	assert.NoError(t, err)
+	proxyServer := httptest.NewServer(p.ProxyServer.Handler())
+	resp, err := proxyServer.Client().Get(proxyServer.URL + "/")
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
 }
