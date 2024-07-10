@@ -14,15 +14,21 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type listenerConfig struct {
-	port         int
-	ip           string
-	apiIp        string
-	apiPort      int
-	metricsIp    string
-	metricsPort  int
+	port             int
+	ip               string
+	timeout          int
+	keepAliveTimeout int
+
+	apiIp   string
+	apiPort int
+
+	metricsIp   string
+	metricsPort int
+
 	redirectPort int
 	redirectTo   int
 }
@@ -69,12 +75,10 @@ var (
 	customHeader    []string
 	insecure        bool
 	hostRouting     bool
+	proxyTimeout    int
 
-	logLevel         string
-	timeout          int
-	proxyTimeout     int
-	storageBackend   string
-	keepAliveTimeout int
+	logLevel       string
+	storageBackend string
 )
 
 // configurable-http-proxy main command
@@ -105,8 +109,8 @@ func run(cmd *cobra.Command, args []string) {
 	if err != nil {
 		panic(fmt.Errorf("parsing api ssl error: %w", err))
 	}
-	go listen(proxyTlsCfg, listenerCfg.ip, listenerCfg.port, proxy.ProxyServer.Handler())
-	go listen(apiTlsCfg, listenerCfg.apiIp, listenerCfg.apiPort, proxy.ApiServer.Handler())
+	go listen(proxyTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.ip, listenerCfg.port), listenerCfg.timeout, listenerCfg.keepAliveTimeout, proxy.ProxyServer.Handler())
+	go listen(apiTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.apiIp, listenerCfg.apiPort), 0, 0, proxy.ApiServer.Handler())
 
 	log.Info(fmt.Sprintf("Proxying %s://%s:%d to %s", schema(options.Ssl),
 		defaultIfEmpty(listenerCfg.ip, "*"), listenerCfg.port,
@@ -130,7 +134,7 @@ func run(cmd *cobra.Command, args []string) {
 		if redirectPortDst == 0 {
 			redirectPortDst = listenerCfg.port
 		}
-		go listen(nil, "", listenerCfg.redirectPort, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		go listen(nil, fmt.Sprintf(":%d", listenerCfg.redirectPort), 0, 0, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Host == "" {
 				msg := fmt.Sprintf("This server is HTTPS-only on port %d, but an HTTP request was made and the host could not be determined from the request.",
 					redirectPortDst)
@@ -176,10 +180,13 @@ func schema(ssl *lib.SslConfig) string {
 	return "https"
 }
 
-func listen(tlsConfig *tls.Config, ip string, port int, handler http.Handler) {
+func listen(tlsConfig *tls.Config, addr string, timeout, idleTimeout int, handler http.Handler) {
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", ip, port),
-		Handler: handler,
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  time.Duration(timeout) * time.Millisecond,
+		WriteTimeout: time.Duration(timeout) * time.Millisecond,
+		IdleTimeout:  time.Duration(idleTimeout) * time.Millisecond,
 	}
 	if tlsConfig != nil {
 		server.TLSConfig = tlsConfig
@@ -212,6 +219,8 @@ func init() {
 	rootCmd.Flags().IntVar(&listenerCfg.metricsPort, "metrics-port", 0, "Port of metrics server. Defaults to no metrics server")
 	rootCmd.Flags().IntVar(&listenerCfg.redirectPort, "redirect-port", 0, "Redirect HTTP requests on this port to the server on HTTPS")
 	rootCmd.Flags().IntVar(&listenerCfg.redirectTo, "redirect-to", 0, "Redirect HTTP requests from --redirect-port to this port")
+	rootCmd.Flags().IntVar(&listenerCfg.timeout, "timeout", 0, "Timeout (in millis) when proxy drops connection for a request.")
+	rootCmd.Flags().IntVar(&listenerCfg.keepAliveTimeout, "keep-alive-timeout", 0, "Set timeout (in milliseconds) for Keep-Alive connections")
 
 	// ssl
 	rootCmd.Flags().StringVar(&sslKey, "ssl-key", "", "SSL key to use, if any")
@@ -261,10 +270,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&hostRouting, "host-routing", false, "Use host routing (host as first level of path)")
 
 	rootCmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-	rootCmd.Flags().IntVar(&timeout, "timeout", 0, "Timeout (in millis) when proxy drops connection for a request.")
 	rootCmd.Flags().IntVar(&proxyTimeout, "proxy-timeout", 0, "Timeout (in millis) when proxy receives no response from target.")
 	rootCmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Define an external storage class. Defaults to in-MemoryStore.")
-	rootCmd.Flags().IntVar(&keepAliveTimeout, "keep-alive-timeout", 0, "Set timeout (in milliseconds) for Keep-Alive connections")
 }
 
 // initConfig will panic if args illegal
@@ -332,9 +339,7 @@ func initConfig() *lib.Config {
 	cfg.HostRouting = hostRouting
 	cfg.AuthToken = os.Getenv("CONFIGPROXY_AUTH_TOKEN")
 	cfg.Headers = headersMap(customHeader)
-	cfg.Timeout = timeout
 	cfg.ProxyTimeout = proxyTimeout
-	cfg.KeepAliveTimeout = keepAliveTimeout
 
 	// metrics cfg
 	cfg.EnableMetrics = listenerCfg.metricsPort != 0

@@ -28,5 +28,4 @@ Ignored SSL args:
 
 Missing features (yet):
 
-- Proxy server: `--keep-alive-timeout`, `--timeout`
 - Metrics server: `--metrics-port`, `--metrics-ip`

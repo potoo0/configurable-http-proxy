@@ -61,9 +61,6 @@ type Config struct {
 	ProtocolRewrite string
 	ProxyTimeout    int
 
-	Timeout          int
-	KeepAliveTimeout int
-
 	EnableMetrics  bool
 	StorageBackend string
 }
