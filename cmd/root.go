@@ -233,9 +233,9 @@ func init() {
 		"Reject unauthorized SSL connections (only meaningful if --ssl-request-cert is given)")
 
 	rootCmd.Flags().StringVar(&sslProtocol, "ssl-protocol", "", "Set specific SSL protocol, e.g. TLSv1_2, SSLv3")
-	rootCmd.Flags().StringVar(&sslCiphers, "ssl-ciphers", "", ":-separated ssl cipher list. Default excludes RC4")
-	rootCmd.Flags().BoolVar(&sslAllowRc4, "ssl-allow-rc4", false, "Allow RC4 cipher for SSL (disabled by default)")
-	rootCmd.Flags().StringVar(&sslDhparam, "ssl-dhparam", "", "SSL Diffie-Hellman Parameters pem file, if any")
+	rootCmd.Flags().StringVar(&sslCiphers, "ssl-ciphers", "", "(ignored) :-separated ssl cipher list. Default excludes RC4")
+	rootCmd.Flags().BoolVar(&sslAllowRc4, "ssl-allow-rc4", false, "(ignored) Allow RC4 cipher for SSL (disabled by default)")
+	rootCmd.Flags().StringVar(&sslDhparam, "ssl-dhparam", "", "(ignored) SSL Diffie-Hellman Parameters pem file, if any")
 
 	// ssl - api
 	rootCmd.Flags().StringVar(&apiSslKey, "api-ssl-key", "", "SSL key to use, if any, for API requests")
