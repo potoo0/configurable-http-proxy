@@ -5,6 +5,7 @@ import (
 	log "log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,9 +29,9 @@ func (server *ApiServer) Handler() http.Handler {
 	router.HandleFunc("DELETE /api/routes", server.deleteRoute)
 	router.HandleFunc("DELETE /api/routes/{path...}", server.deleteRoute)
 
-	middlewares := []Middleware{LoggerMiddleware}
+	middlewares := []Middleware{server.LoggerMiddleware}
 	if server.config.authToken != "" {
-		middlewares = append(middlewares, BuildAuthMiddleware(server.config.authToken))
+		middlewares = append(middlewares, server.AuthMiddleware)
 	}
 	middleware := ChainMiddleware(middlewares...)
 
@@ -113,7 +114,7 @@ func (server *ApiServer) deleteRoute(w http.ResponseWriter, r *http.Request) {
 
 /* -------------------------- middleware start -------------------------- */
 
-func LoggerMiddleware(next http.Handler) http.HandlerFunc {
+func (server *ApiServer) LoggerMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lrw := newLoggingResponseWriter(w)
 		next.ServeHTTP(lrw, r)
@@ -128,26 +129,25 @@ func LoggerMiddleware(next http.Handler) http.HandlerFunc {
 
 		msg := lrw.logMsg
 		logF(fmt.Sprintf("%d %s %s %s", code, r.Method, r.URL.Path, msg))
+		server.config.metrics.apiRoute.WithLabelValues(strconv.Itoa(code), r.Method).Inc()
 	}
 }
 
-func BuildAuthMiddleware(token string) func(next http.Handler) http.HandlerFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			authRaw := r.Header.Get("authorization")
-			auth, _ := strings.CutPrefix(authRaw, "token")
-			if strings.TrimSpace(auth) != token {
-				msg := authRaw
-				if msg == "" {
-					msg = "no authorization"
-				}
-				log.Debug(fmt.Sprintf("Rejecting API request from: %s", msg))
-				w.WriteHeader(http.StatusForbidden)
-				return
+func (server *ApiServer) AuthMiddleware(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authRaw := r.Header.Get("authorization")
+		auth, _ := strings.CutPrefix(authRaw, "token")
+		if strings.TrimSpace(auth) != server.config.authToken {
+			msg := authRaw
+			if msg == "" {
+				msg = "no authorization"
 			}
-
-			next.ServeHTTP(w, r)
+			log.Debug(fmt.Sprintf("Rejecting API request from: %s", msg))
+			w.WriteHeader(http.StatusForbidden)
+			return
 		}
+
+		next.ServeHTTP(w, r)
 	}
 }
 

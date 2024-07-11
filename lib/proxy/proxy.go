@@ -40,6 +40,9 @@ type Server struct {
 	TargetForReq       func(host, path string) (Target, bool)
 	UpdateLastActivity func(path string)
 
+	ServeMetrics    func(kind string)
+	ResponseMetrics func(code int)
+
 	proxy *httputil.ReverseProxy
 }
 
@@ -62,7 +65,7 @@ func (s *Server) Handler() http.HandlerFunc {
 			if errors.Is(err, context.DeadlineExceeded) {
 				code = http.StatusGatewayTimeout
 			}
-			s.getErrorHandler()(code, proxyKind(request), writer, request, err)
+			s.handleError(code, proxyKind(request), writer, request, err)
 		},
 	}
 	return s.serve
@@ -103,7 +106,15 @@ func (s *Server) rewrite(pr *httputil.ProxyRequest) {
 	}
 }
 
-func (s *Server) modifyResponse(r *http.Response) error {
+func (s *Server) modifyResponse(r *http.Response) (err error) {
+	if s.ResponseMetrics != nil {
+		defer func() {
+			// skip the error, it will be handled by the ErrorHandler
+			if err == nil {
+				s.ResponseMetrics(r.StatusCode)
+			}
+		}()
+	}
 	prefix := r.Request.Context().Value(ctxPrefixKey{}).(string)
 	if r.StatusCode < 300 {
 		s.updateLastActivity(prefix)
@@ -131,15 +142,18 @@ func (s *Server) modifyResponse(r *http.Response) error {
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	kind := proxyKind(r)
+	if s.ServeMetrics != nil {
+		s.ServeMetrics(kind)
+	}
 	defer func() {
 		if err := recover(); err != nil {
-			s.getErrorHandler()(404, kind, w, r, nil)
+			s.handleError(http.StatusInternalServerError, kind, w, r, nil)
 		}
 	}()
 	// notes: r.URL.Path already PathUnescape
 	targetInfo, exists := s.TargetForReq(parseHost(r), r.URL.Path)
 	if !exists {
-		s.getErrorHandler()(404, kind, w, r, nil)
+		s.handleError(http.StatusNotFound, kind, w, r, nil)
 		return
 	}
 	defer s.updateLastActivity(targetInfo.Prefix)
@@ -205,11 +219,15 @@ func (s *Server) handleHttp(w http.ResponseWriter, r *http.Request) {
 	s.proxy.ServeHTTP(w, r)
 }
 
-func (s *Server) getErrorHandler() func(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
-	if s.ErrorHandler != nil {
-		return s.ErrorHandler
+func (s *Server) handleError(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
+	if s.ResponseMetrics != nil {
+		defer s.ResponseMetrics(code)
 	}
-	return s.defaultErrorHandler
+	errorHandler := s.ErrorHandler
+	if errorHandler == nil {
+		errorHandler = s.defaultErrorHandler
+	}
+	errorHandler(code, kind, w, r, err)
 }
 
 func (s *Server) defaultErrorHandler(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {

@@ -3,6 +3,8 @@ package lib
 import (
 	"fmt"
 	"github.com/potoo0/configurable-http-proxy/lib/proxy"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	log "log/slog"
 	"net/http"
@@ -21,10 +23,12 @@ type ConfigurableProxy struct {
 	errorPath   string
 	client      *http.Client
 
-	routes BaseStore
+	routes  BaseStore
+	metrics *metrics
 
-	ApiServer   *ApiServer
-	ProxyServer *proxy.Server
+	ApiServer     *ApiServer
+	ProxyServer   *proxy.Server
+	MetricsServer http.Handler
 }
 
 func loadStorage(options *Config) *MemoryStore {
@@ -35,15 +39,26 @@ func loadStorage(options *Config) *MemoryStore {
 }
 
 func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
-	var instance = new(ConfigurableProxy)
-	instance.routes = loadStorage(config)
-	instance.authToken = config.AuthToken
-	instance.hostRouting = config.HostRouting
-	instance.errorTarget = config.ErrorTarget
-	instance.errorPath = config.ErrorPath
+	var p = new(ConfigurableProxy)
+	p.routes = loadStorage(config)
+	p.authToken = config.AuthToken
+	p.hostRouting = config.HostRouting
+	p.errorTarget = config.ErrorTarget
+	p.errorPath = config.ErrorPath
+
+	// init metrics first, so we can use it in addRoute
+	if config.EnableMetrics {
+		reg := prometheus.NewRegistry()
+		p.metrics = NewMetrics(reg)
+		mServer := http.NewServeMux()
+		mServer.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
+		p.MetricsServer = mServer
+	} else {
+		p.metrics = NewMockMetrics()
+	}
 
 	if config.DefaultTarget != "" {
-		instance.addRoute("/", map[string]any{"target": config.DefaultTarget})
+		p.addRoute("/", map[string]any{"target": config.DefaultTarget})
 	}
 	if config.ClientSsl != nil {
 		tlsConfig, err := config.ClientSsl.TlsConfig(false)
@@ -52,12 +67,12 @@ func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConfig
-		instance.client = &http.Client{Transport: transport}
+		p.client = &http.Client{Transport: transport}
 	}
 
-	instance.ApiServer = NewApiServer(instance)
+	p.ApiServer = NewApiServer(p)
 
-	instance.ProxyServer = &proxy.Server{
+	p.ProxyServer = &proxy.Server{
 		Secure:          config.Secure,
 		IncludePrefix:   config.IncludePrefix,
 		PrependPath:     config.PrependPath,
@@ -68,13 +83,20 @@ func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
 		ProtocolRewrite: config.ProtocolRewrite,
 		ProxyTimeout:    config.ProxyTimeout,
 
-		Client:       instance.client,
-		ErrorHandler: instance.handleProxyError,
+		Client:       p.client,
+		ErrorHandler: p.handleProxyError,
 
-		TargetForReq:       instance.targetForReq,
-		UpdateLastActivity: instance.updateLastActivity,
+		TargetForReq:       p.targetForReq,
+		UpdateLastActivity: p.updateLastActivity,
+
+		ServeMetrics: func(kind string) {
+			p.metrics.proxyRequests.WithLabelValues(kind).Inc()
+		},
+		ResponseMetrics: func(code int) {
+			p.metrics.proxyResponses.WithLabelValues(strconv.Itoa(code)).Inc()
+		},
 	}
-	return instance, nil
+	return p, nil
 }
 
 func (p *ConfigurableProxy) handleProxyError(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
@@ -185,6 +207,9 @@ func (p *ConfigurableProxy) getErrorFile(name string) ([]byte, error) {
 }
 
 func (p *ConfigurableProxy) updateLastActivity(path string) {
+	start := time.Now()
+	defer func() { duration := time.Since(start).Seconds(); p.metrics.lastActivityUpdating.Observe(duration) }()
+
 	if _, ok := p.routes.Get(path); ok {
 		p.routes.Update(path, map[string]any{"lastActivity": time.Now().Unix()})
 	}
@@ -242,6 +267,9 @@ func (p *ConfigurableProxy) getRoutes(inactiveSince int64) map[string]map[string
 
 // return config target for a given url path
 func (p *ConfigurableProxy) targetForReq(host, path string) (target proxy.Target, exists bool) {
+	start := time.Now()
+	defer func() { duration := time.Since(start).Seconds(); p.metrics.findTarget.Observe(duration) }()
+
 	basePath := ""
 	if p.hostRouting {
 		basePath = "/" + host

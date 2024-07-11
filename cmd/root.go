@@ -111,6 +111,9 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	go listen(proxyTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.ip, listenerCfg.port), listenerCfg.timeout, listenerCfg.keepAliveTimeout, proxy.ProxyServer.Handler())
 	go listen(apiTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.apiIp, listenerCfg.apiPort), 0, 0, proxy.ApiServer.Handler())
+	if listenerCfg.metricsPort != 0 {
+		go listen(nil, fmt.Sprintf("%s:%d", listenerCfg.metricsIp, listenerCfg.metricsPort), 0, 0, proxy.MetricsServer)
+	}
 
 	log.Info(fmt.Sprintf("Proxying %s://%s:%d to %s", schema(options.Ssl),
 		defaultIfEmpty(listenerCfg.ip, "*"), listenerCfg.port,
@@ -118,14 +121,7 @@ func run(cmd *cobra.Command, args []string) {
 	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.ApiSsl),
 		defaultIfEmpty(listenerCfg.apiIp, "*"), listenerCfg.apiPort))
 	if listenerCfg.metricsPort != 0 {
-		log.Warn("Metrics server not implemented yet")
-		//log.Info(fmt.Sprintf("Serve metrics at %s://%s:%d/metrics", "http", listenerCfg.metricsIp, listenerCfg.metricsPort))
-	}
-
-	if pidFile != "" {
-		if err := writePidFile(pidFile); err != nil {
-			log.Warn(fmt.Sprintf("write pid file error: %v", err))
-		}
+		log.Info(fmt.Sprintf("Serve metrics at %s://%s:%d/metrics", "http", listenerCfg.metricsIp, listenerCfg.metricsPort))
 	}
 
 	// Redirect HTTP to HTTPS on the proxy's port
@@ -152,6 +148,12 @@ func run(cmd *cobra.Command, args []string) {
 			w.Header().Set("Location", "https://"+host+r.RequestURI)
 			w.WriteHeader(http.StatusMovedPermanently)
 		}))
+	}
+
+	if pidFile != "" {
+		if err := writePidFile(pidFile); err != nil {
+			log.Warn(fmt.Sprintf("write pid file error: %v", err))
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
