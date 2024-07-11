@@ -23,9 +23,17 @@ func muteLog() {
 func TestProxyKind(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://localhost", nil)
 	assert.Equal(t, "http", proxyKind(req))
+
 	req.Header.Set("Connection", "Upgrade, x, y")
 	req.Header.Set("Upgrade", "websocket, a, b")
 	assert.Equal(t, "ws", proxyKind(req))
+
+	req.Header.Set("Connection", "upgrade, x, y")
+	req.Header.Set("Upgrade", "Websocket, a, b")
+	assert.Equal(t, "ws", proxyKind(req))
+
+	req.Header.Set("Connection", "upgrad, x, y")
+	assert.Equal(t, "http", proxyKind(req))
 }
 
 func TestProxy_rewrite(t *testing.T) {

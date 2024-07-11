@@ -197,7 +197,7 @@ func proxyKind(r *http.Request) string {
 func headerValuesContainsToken(values []string, token string) bool {
 	for _, v := range values {
 		for _, actual := range strings.Split(v, ",") {
-			if strings.TrimSpace(actual) == token {
+			if strings.EqualFold(strings.TrimSpace(actual), token) {
 				return true
 			}
 		}

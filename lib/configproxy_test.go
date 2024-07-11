@@ -23,6 +23,7 @@ func TestErrorHandler(t *testing.T) {
 		}
 		http.Error(w, "errorTarget,"+statusRaw, status)
 	})))
+	defer server.Close()
 
 	status := 400
 	p, err := NewConfigurableProxy(new(Config))
@@ -94,6 +95,8 @@ func TestNewConfigurableProxy(t *testing.T) {
 	p, err := NewConfigurableProxy(config)
 	assert.NoError(t, err)
 	proxyServer := httptest.NewServer(p.ProxyServer.Handler())
+	defer proxyServer.Close()
+
 	resp, err := proxyServer.Client().Get(proxyServer.URL + "/")
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
