@@ -162,7 +162,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	log.Debug(fmt.Sprintf("PROXY %s %s to %s", kind, r.URL, targetUrlRaw))
 	targetUrl, err := url.Parse(targetUrlRaw)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.handleError(http.StatusBadGateway, kind, w, r, err)
 		return
 	}
 
