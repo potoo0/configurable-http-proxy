@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func muteLog() {
@@ -28,12 +29,66 @@ func TestProxyKind(t *testing.T) {
 	req.Header.Set("Upgrade", "websocket, a, b")
 	assert.Equal(t, "ws", proxyKind(req))
 
-	req.Header.Set("Connection", "upgrade, x, y")
+	req.Header.Set("Connection", "1,   upgrade, x, y")
 	req.Header.Set("Upgrade", "Websocket, a, b")
 	assert.Equal(t, "ws", proxyKind(req))
 
 	req.Header.Set("Connection", "upgrad, x, y")
 	assert.Equal(t, "http", proxyKind(req))
+}
+
+func TestUrlClone(t *testing.T) {
+	t.Run("simple", func(t *testing.T) {
+		u := mustParse(t, "http://localhost:8080")
+		uNew := cloneURL(u)
+		assert.Equal(t, u.String(), uNew.String())
+		uNew.Path = "/path"
+		assert.NotEmpty(t, u.String(), uNew.String())
+	})
+	t.Run("with-user", func(t *testing.T) {
+		u := mustParse(t, "http://user:passwd@localhost:8080")
+		uNew := cloneURL(u)
+		assert.Equal(t, u.String(), uNew.String())
+	})
+}
+
+func TestUrlPort(t *testing.T) {
+	testcases := []struct {
+		urlRaw   string
+		port     int
+		fromHost bool
+	}{
+		{"http://localhost", 80, false},
+		{"https://localhost", 443, false},
+		{"http://localhost:8080", 8080, true},
+	}
+	for _, tc := range testcases {
+		u := mustParse(t, tc.urlRaw)
+		port, fromHost := urlPort(u)
+		assert.Equal(t, tc.port, port)
+		assert.Equal(t, tc.fromHost, fromHost)
+	}
+}
+
+func TestProxy_healthCheck(t *testing.T) {
+	proxyServer := &Server{PrependPath: true}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyServer.handleHttp(w, r)
+	}))
+	defer server.Close()
+
+	res, err := server.Client().Get(server.URL + "/_chp_healthz")
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer res.Body.Close()
+
+	assert.Equal(t, 200, res.StatusCode)
+	bytes, err := io.ReadAll(res.Body)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, `{"status": "OK"}`, string(bytes))
 }
 
 func TestProxy_rewrite(t *testing.T) {
@@ -90,6 +145,15 @@ func TestProxy_rewrite(t *testing.T) {
 		assert.Equal(t, "127.0.0.1", pr.Out.Header.Get("X-Forwarded-For"))
 		assert.Equal(t, serverUrl.Host, pr.Out.Header.Get("X-Forwarded-Host"))
 		assert.Equal(t, serverUrl.Scheme, pr.Out.Header.Get("X-Forwarded-Proto"))
+	})
+	t.Run("Headers", func(t *testing.T) {
+		headers := map[string]string{"h1": "v1", "h2": "v2"}
+		proxyServer := &Server{Headers: headers}
+		pr := &httputil.ProxyRequest{In: req, Out: req.Clone(ctx)}
+		proxyServer.rewrite(pr)
+		for k, v := range headers {
+			assert.Equal(t, v, pr.Out.Header.Get(k))
+		}
 	})
 }
 
@@ -174,7 +238,6 @@ func TestProxy_redirect(t *testing.T) {
 		}
 		assert.Equal(t, u.String(), resp.Header.Get("Location"))
 	})
-
 }
 
 func TestProxyServer(t *testing.T) {
@@ -228,6 +291,114 @@ func TestProxyServer(t *testing.T) {
 		proxyServer.PrependPath = true
 		routes["/get"] = "https://httpbin.org/get?" + toQueryRaw(queryParams)
 		requestAndAssert(t, "/get")
+	})
+}
+
+func TestProxyServer_error(t *testing.T) {
+	// build target
+	targetMux := http.NewServeMux()
+	targetMux.HandleFunc("/sleep-200ms", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	})
+	targetMux.HandleFunc("/location-unparseable", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", ":unparseable")
+		w.WriteHeader(http.StatusMovedPermanently)
+	})
+	targetServer := httptest.NewServer(targetMux)
+	defer targetServer.Close()
+
+	// build proxyServer
+	proxyServer := &Server{
+		AutoRewrite: true,
+		TargetForReq: func(host, path string) (Target, bool) {
+			if path == "/not-found" {
+				return Target{}, false
+			} else if path == "/unparseable" {
+				return Target{Target: ":unparseable"}, true
+			}
+			return Target{Target: targetServer.URL}, true
+		},
+	}
+	proxyServer.ErrorHandler = func(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
+		//t.Logf("errorHandler recv: code=%d, kind=%s, err=%s", code, kind, err)
+		w.WriteHeader(code)
+		w.Write([]byte(strconv.Itoa(code)))
+	}
+	server := httptest.NewServer(proxyServer.Handler())
+
+	t.Run("errorHandler-default", func(t *testing.T) {
+		errorHandler := proxyServer.ErrorHandler
+		proxyServer.ErrorHandler = nil
+		defer func() { proxyServer.ErrorHandler = errorHandler }()
+
+		resp, err := server.Client().Get(server.URL + "/not-found")
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		bytes, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		assert.Equal(t, http.StatusText(http.StatusNotFound), string(bytes))
+	})
+	t.Run("target-not-found", func(t *testing.T) {
+		resp, err := server.Client().Get(server.URL + "/not-found")
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		bytes, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		assert.Equal(t, strconv.Itoa(http.StatusNotFound), string(bytes))
+	})
+	t.Run("target-unparseable", func(t *testing.T) {
+		resp, err := server.Client().Get(server.URL + "/unparseable")
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		bytes, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+		assert.Equal(t, strconv.Itoa(http.StatusBadGateway), string(bytes))
+	})
+	t.Run("proxy-timeout", func(t *testing.T) {
+		proxyTimeout := proxyServer.ProxyTimeout
+		proxyServer.ProxyTimeout = 100
+		defer func() { proxyServer.ProxyTimeout = proxyTimeout }()
+
+		resp, err := server.Client().Get(server.URL + "/sleep-200ms")
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		bytes, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
+		assert.Equal(t, strconv.Itoa(http.StatusGatewayTimeout), string(bytes))
+	})
+	t.Run("modifyResponse-location-unparseable", func(t *testing.T) {
+		resp, err := server.Client().Get(server.URL + "/location-unparseable")
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer resp.Body.Close()
+		bytes, err := io.ReadAll(resp.Body)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+		assert.Equal(t, strconv.Itoa(http.StatusBadGateway), string(bytes))
 	})
 }
 

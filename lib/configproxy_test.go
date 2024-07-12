@@ -11,9 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestErrorHandler(t *testing.T) {
+func TestConfigurableProxy_ErrorHandler(t *testing.T) {
 	server := httptest.NewServer(http.StripPrefix("/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		statusRaw, _ := strings.CutPrefix(r.URL.Path, "/")
 		status, err := strconv.Atoi(statusRaw)
@@ -102,4 +103,91 @@ func TestNewConfigurableProxy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
+}
+
+func TestConfigurableProxy_MetricsServe(t *testing.T) {
+	p, err := NewConfigurableProxy(&Config{
+		EnableMetrics: true,
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	server := httptest.NewServer(p.MetricsServer)
+	defer server.Close()
+	resp, err := server.Client().Get(server.URL + "/metrics")
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer resp.Body.Close()
+	written, _ := io.Copy(io.Discard, resp.Body)
+	assert.NotEqual(t, 0, written)
+}
+
+func TestConfigurableProxy_route(t *testing.T) {
+	p, err := NewConfigurableProxy(new(Config))
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	t.Run("add-get-remove", func(t *testing.T) {
+		// add
+		routeDataOld := map[string]any{"target": "old"}
+		p.addRoute("/path", copyMap(routeDataOld))
+
+		// get
+		route, exists := p.getRoute("/path")
+		assert.True(t, exists)
+		assert.True(t, equalOnLeft(routeDataOld, route))
+
+		// remove
+		removed := p.removeRoute("/path")
+		assert.True(t, removed)
+		removed = p.removeRoute("/path")
+		assert.False(t, removed)
+
+		// get
+		_, exists = p.getRoute("/path")
+		assert.False(t, exists)
+	})
+	t.Run("get-routes-all", func(t *testing.T) {
+		routeDataOld := map[string]any{"target": "old"}
+		p.addRoute("/path1", copyMap(routeDataOld))
+		p.addRoute("/path2", copyMap(routeDataOld))
+		defer p.removeRoute("/path1")
+		defer p.removeRoute("/path2")
+
+		routes := p.getRoutes(0)
+		assert.Equal(t, 2, len(routes))
+	})
+	t.Run("get-routes-by_inactiveSince", func(t *testing.T) {
+		routeData1 := map[string]any{"target": "t1"}
+		p.addRoute("/path1", copyMap(routeData1))
+		time.Sleep(1005 * time.Millisecond)
+		inactiveSince := time.Now().Unix()
+		routeData2 := map[string]any{"target": "t2"}
+		p.addRoute("/path2", copyMap(routeData2))
+		defer p.removeRoute("/path1")
+		defer p.removeRoute("/path2")
+
+		routes := p.getRoutes(inactiveSince)
+		assert.Equal(t, 1, len(routes))
+		assert.True(t, equalOnLeft(routeData1, routes["/path1"]))
+	})
+}
+
+func copyMap(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func equalOnLeft(left map[string]any, right map[string]any) bool {
+	for k, v := range left {
+		if rv, exists := right[k]; !exists || rv != v {
+			return false
+		}
+	}
+	return true
 }
