@@ -6,7 +6,7 @@ written in nodejs. The goal is drop-in replacement of the nodejs version.
 
 [![Build Status](https://github.com/potoo0/configurable-http-proxy/workflows/build/badge.svg)](https://github.com/potoo0/configurable-http-proxy/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/potoo0/configurable-http-proxy)](https://goreportcard.com/report/github.com/potoo0/configurable-http-proxy)
-[![codecov](https://codecov.io/gh/potoo0/configurable-http-proxy/branch/master/graph/badge.svg)](https://codecov.io/gh/potoo0/configurable-http-proxy)
+[![codecov](https://codecov.io/gh/potoo0/configurable-http-proxy/graph/badge.svg?token=5EPRKLUUNA)](https://codecov.io/gh/potoo0/configurable-http-proxy)
 
 ## Install
 
