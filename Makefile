@@ -6,12 +6,10 @@ PACKAGES	:= $(shell go list ./...)
 BINARY_NAME := $(shell basename $(PACKAGE))
 
 # commit info
-COMMIT_SHA	:= $(shell git rev-parse HEAD)
 TAG 		:= $(shell git describe --tags --abbrev=0)
 
 # embed version info into binary
 LDFLAGS += -X main.Tag=$(TAG)
-LDFLAGS += -X main.Build=$(COMMIT_SHA)
 
 GREEN  := $(shell tput -Txterm setaf 2)
 YELLOW := $(shell tput -Txterm setaf 3)
@@ -40,7 +38,7 @@ test: dep ## Run
 	@echo "Written logs in test.log"
 
 build: dep ## Build the binary file
-	@go build -o $(BINARY_NAME) -ldflags '$(LDFLAGS)'
+	@go build -o $(BINARY_NAME) -ldflags '-s -w $(LDFLAGS)'
 
 clean: ## Remove previous build
 	@go clean ./...
