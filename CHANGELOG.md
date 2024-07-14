@@ -1,3 +1,8 @@
+## v0.1.3
+
+- Modify go link flags to reduce binary size
+- Publish docker image
+
 ## 0.1.2
 
 - Fix string case issue in proxy.proxyKind.

@@ -1,4 +1,4 @@
-## 0.1.2
+## v0.1.3
 
-- Fix string case issue in proxy.proxyKind.
-- Support `--metrics-port`, `--metrics-ip` for prometheus metrics.
+- Modify go link flags to reduce binary size
+- Publish docker image

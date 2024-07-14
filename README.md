@@ -16,9 +16,15 @@ written in nodejs. The goal is drop-in replacement of the nodejs version.
 go install github.com/potoo0/configurable-http-proxy
 ```
 
-### Release
+### Prebuilt
 
 Download the latest release from the releases page.
+
+### Docker
+
+```
+docker run -d -p 8000:8000 -p 8001:8001 potoo0/configurable-http-proxy:latest
+```
 
 ## Features
 
