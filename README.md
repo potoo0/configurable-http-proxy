@@ -13,7 +13,7 @@ written in nodejs. The goal is drop-in replacement of the nodejs version.
 ### Manually
 
 ```
-go install github.com/potoo0/configurable-http-proxy
+go install github.com/potoo0/configurable-http-proxy@latest
 ```
 
 ### Prebuilt
