@@ -33,8 +33,12 @@ dep: tidy ## Install dependencies
 vet: dep ## Run go vet
 	@go vet ./...
 
-test: dep ## Run
+quicktest: dep ## Run quicktest, without race detector
 	@go test -v ./... -short 2>&1 | tee test.log
+	@echo "Written logs in quicktest.log"
+
+test: dep ## Run test
+	@go test -cpu=2 -race -v ./... -short 2>&1 | tee test.log
 	@echo "Written logs in test.log"
 
 build: dep ## Build the binary file
@@ -42,4 +46,4 @@ build: dep ## Build the binary file
 
 clean: ## Remove previous build
 	@go clean ./...
-	@rm -f test.log $(BINARY_NAME)
+	@rm -f quicktest.log test.log $(BINARY_NAME)

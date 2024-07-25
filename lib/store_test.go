@@ -2,6 +2,7 @@ package lib
 
 import (
 	"github.com/stretchr/testify/assert"
+	"sync"
 	"testing"
 )
 
@@ -101,4 +102,27 @@ func TestMemoryStore_Remove(t *testing.T) {
 			subject.Remove("/myRoute/foo/bar")
 		})
 	})
+}
+
+func TestMemoryStoreConcurrentRW(t *testing.T) {
+	var subject BaseStore = NewMemoryStore()
+	data := map[string]any{"test": "value"}
+
+	wg := sync.WaitGroup{}
+	wg.Add(4)
+
+	for range 4 {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				subject.Add("/myRoute", data)
+				subject.Get("/myRoute")
+				subject.GetTarget("/myRoute")
+				subject.GetAll()
+				subject.Update("/myRoute", data)
+				subject.Remove("/myRoute")
+			}
+		}()
+	}
+	wg.Wait()
 }

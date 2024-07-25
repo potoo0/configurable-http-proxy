@@ -38,6 +38,7 @@ func stringToPath(s string) []string {
 	return strings.Split(string(bytes), "/")
 }
 
+// URLTrie is not thread-safe, make sure to lock it if using it in a concurrent way.
 type URLTrie struct {
 	prefix       string
 	branches     map[string]*URLTrie
