@@ -1,3 +1,8 @@
+## v0.1.4
+
+- fix get routes by inactiveSince query param
+- fix MemoryStore data race
+
 ## v0.1.3
 
 - Modify go link flags to reduce binary size

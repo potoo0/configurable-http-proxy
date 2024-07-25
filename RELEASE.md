@@ -1,4 +1,4 @@
-## v0.1.3
+## v0.1.4
 
-- Modify go link flags to reduce binary size
-- Publish docker image
+- fix get routes by inactiveSince query param
+- fix MemoryStore data race
