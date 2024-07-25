@@ -57,9 +57,9 @@ func (server *ApiServer) getRoute(w http.ResponseWriter, r *http.Request) {
 	inactiveSince := int64(0)
 	if inactiveSinceRaw != "" {
 		// pattern: RFC3339
-		inactiveSinceTime, err := time.Parse(time.RFC3339, inactiveSinceRaw)
+		inactiveSinceTime, err := parseTime(inactiveSinceRaw)
 		if err != nil {
-			fail(w, r, http.StatusBadRequest, "Invalid datestamp '"+inactiveSinceRaw+"' must be ISO8601.")
+			fail(w, r, http.StatusBadRequest, "Invalid datestamp '"+inactiveSinceRaw+"' must be RFC3339: "+err.Error())
 			return
 		}
 		inactiveSince = inactiveSinceTime.Unix()
@@ -110,6 +110,15 @@ func (server *ApiServer) deleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseTime(raw string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02T15:04:05-0700", raw)
+	if err != nil {
+		// try RFC3339
+		parsed, err = time.Parse(time.RFC3339, raw)
+	}
+	return parsed, err
 }
 
 /* -------------------------- middleware start -------------------------- */
