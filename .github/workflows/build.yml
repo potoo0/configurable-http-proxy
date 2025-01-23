@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest]
-        go-version: [ '1.22' ]
+        go-version: [ '1.23' ]
     name: Build
     runs-on: ${{ matrix.platform }}
     steps:
@@ -49,7 +49,7 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest]
-        go-version: [ '1.22' ]
+        go-version: [ '1.23' ]
     name: Lint
     runs-on: ${{ matrix.platform }}
     steps:

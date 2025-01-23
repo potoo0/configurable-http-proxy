@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"errors"
 	"fmt"
 	"github.com/potoo0/configurable-http-proxy/lib/proxy"
 	"github.com/prometheus/client_golang/prometheus"
@@ -182,7 +183,7 @@ func (p *ConfigurableProxy) handleErrorPath(code int, kind string, w http.Respon
 			bytes, err = p.getErrorFile(filename)
 			if err != nil {
 				if os.IsNotExist(err) {
-					return fmt.Errorf("No error file " + filename)
+					return errors.New("no error file " + filename)
 				}
 				return fmt.Errorf("error reading %s %w", filename, err)
 			}
