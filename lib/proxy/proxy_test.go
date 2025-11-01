@@ -3,8 +3,6 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,15 +12,18 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func muteLog() {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	slog.SetDefault(log)
 }
 
 func TestProxyKind(t *testing.T) {
-	req, _ := http.NewRequest("GET", "http://localhost", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://localhost", nil)
 	assert.Equal(t, "http", proxyKind(req))
 
 	req.Header.Set("Connection", "Upgrade, x, y")
@@ -73,33 +74,29 @@ func TestUrlPort(t *testing.T) {
 func TestProxy_healthCheck(t *testing.T) {
 	proxyServer := &Server{PrependPath: true}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		proxyServer.handleHttp(w, r)
+		proxyServer.handleHTTP(w, r)
 	}))
 	defer server.Close()
 
 	res, err := server.Client().Get(server.URL + "/_chp_healthz")
-	if !assert.NoError(t, err) {
-		return
-	}
+	require.NoError(t, err)
 	defer res.Body.Close()
 
 	assert.Equal(t, 200, res.StatusCode)
 	bytes, err := io.ReadAll(res.Body)
-	if !assert.NoError(t, err) {
-		return
-	}
-	assert.Equal(t, `{"status": "OK"}`, string(bytes))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"status": "OK"}`, string(bytes))
 }
 
 func TestProxy_rewrite(t *testing.T) {
 	muteLog()
 	prefix := "/prefix"
-	serverUrlRaw := "http://localhost:8080"
-	serverUrl := mustParse(t, serverUrlRaw)
+	serverURLRaw := "http://localhost:8080"
+	serverURL := mustParse(t, serverURLRaw)
 	target := mustParse(t, "https://httpbin.org/get")
 
 	ctx := context.WithValue(context.Background(), ctxTargetKey{}, target)
-	req, err := http.NewRequestWithContext(ctx, "GET", serverUrlRaw+prefix, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURLRaw+prefix, nil)
 	if err != nil {
 		t.Fatalf("http.NewRequestWithContext error: %v", err)
 	}
@@ -124,7 +121,7 @@ func TestProxy_rewrite(t *testing.T) {
 		proxyServer := &Server{}
 		pr := &httputil.ProxyRequest{In: req, Out: req.Clone(ctx)}
 		proxyServer.rewrite(pr)
-		assert.Equal(t, serverUrl.Host, pr.Out.Header.Get("Host"))
+		assert.Equal(t, serverURL.Host, pr.Out.Header.Get("Host"))
 	})
 	t.Run("ChangeOrigin-true", func(t *testing.T) {
 		proxyServer := &Server{ChangeOrigin: true}
@@ -143,8 +140,8 @@ func TestProxy_rewrite(t *testing.T) {
 		pr := &httputil.ProxyRequest{In: req, Out: req.Clone(ctx)}
 		proxyServer.rewrite(pr)
 		assert.Equal(t, "127.0.0.1", pr.Out.Header.Get("X-Forwarded-For"))
-		assert.Equal(t, serverUrl.Host, pr.Out.Header.Get("X-Forwarded-Host"))
-		assert.Equal(t, serverUrl.Scheme, pr.Out.Header.Get("X-Forwarded-Proto"))
+		assert.Equal(t, serverURL.Host, pr.Out.Header.Get("X-Forwarded-Host"))
+		assert.Equal(t, serverURL.Scheme, pr.Out.Header.Get("X-Forwarded-Proto"))
 	})
 	t.Run("Headers", func(t *testing.T) {
 		headers := map[string]string{"h1": "v1", "h2": "v2"}
@@ -174,22 +171,22 @@ func TestProxy_redirect_reg(t *testing.T) {
 	}
 	for _, c := range cases {
 		assert.Equal(t, c.redirect, redirectRegex.MatchString(strconv.Itoa(c.statusCode)),
-			fmt.Sprintf("statusCode=%d", c.statusCode))
+			"statusCode=%d", c.statusCode)
 	}
 }
 
 func TestProxy_redirect(t *testing.T) {
 	muteLog()
 	redirectTo := "https://httpbin.org/get"
-	reqUrlRaw := "https://httpbin.org/redirect-to?url=" + redirectTo
+	reqURLRaw := "https://httpbin.org/redirect-to?url=" + redirectTo
 
-	serverUrl := mustParse(t, reqUrlRaw)
+	serverURL := mustParse(t, reqURLRaw)
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, ctxPrefixKey{}, serverUrl.Path)
+	ctx = context.WithValue(ctx, ctxPrefixKey{}, serverURL.Path)
 
 	reqHeader := http.Header{}
-	reqHeader.Set("Host", serverUrl.Host)
-	req, err := http.NewRequestWithContext(ctx, "GET", reqUrlRaw, nil)
+	reqHeader.Set("Host", serverURL.Host)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURLRaw, nil)
 	if err != nil {
 		t.Fatalf("http.NewRequestWithContext error: %v", err)
 	}
@@ -200,7 +197,7 @@ func TestProxy_redirect(t *testing.T) {
 	t.Run("status-200", func(t *testing.T) {
 		respHeader := http.Header{}
 		respHeader.Set("Location", redirectTo)
-		resp := &http.Response{Request: req, Header: respHeader, StatusCode: 200}
+		resp := &http.Response{Request: req, Header: respHeader, StatusCode: http.StatusOK}
 		if err := proxyServer.modifyResponse(resp); err != nil {
 			t.Fatalf("modifyResponse error: %v", err)
 		}
@@ -214,7 +211,7 @@ func TestProxy_redirect(t *testing.T) {
 
 		respHeader := http.Header{}
 		respHeader.Set("Location", redirectTo)
-		resp := &http.Response{Request: req, Header: respHeader, StatusCode: 301}
+		resp := &http.Response{Request: req, Header: respHeader, StatusCode: http.StatusMovedPermanently}
 		if err := proxyServer.modifyResponse(resp); err != nil {
 			t.Fatalf("modifyResponse error: %v", err)
 		}
@@ -232,7 +229,7 @@ func TestProxy_redirect(t *testing.T) {
 
 		respHeader := http.Header{}
 		respHeader.Set("Location", redirectTo)
-		resp := &http.Response{Request: req, Header: respHeader, StatusCode: 301}
+		resp := &http.Response{Request: req, Header: respHeader, StatusCode: http.StatusMovedPermanently}
 		if err := proxyServer.modifyResponse(resp); err != nil {
 			t.Fatalf("modifyResponse error: %v", err)
 		}
@@ -246,7 +243,7 @@ func TestProxyServer(t *testing.T) {
 	queryParams := map[string]any{"q1": "v1"}
 	routes := map[string]string{}
 	proxyServer := &Server{
-		TargetForReq: func(host, path string) (target Target, exists bool) {
+		TargetForReq: func(_, path string) (target Target, exists bool) {
 			var urlRaw string
 			if urlRaw, exists = routes[path]; exists {
 				target.Target = urlRaw
@@ -260,23 +257,17 @@ func TestProxyServer(t *testing.T) {
 
 	requestAndAssert := func(t *testing.T, path string) {
 		res, err := server.Client().Get(server.URL + path)
-		if !assert.Nil(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer res.Body.Close()
 
 		assert.Equal(t, 200, res.StatusCode)
 		bodyBytes, err := io.ReadAll(res.Body)
-		if !assert.Nil(t, err) {
-			return
-		}
-		//t.Logf("GET StatusCode=%d, body=%s", res.StatusCode, string(bodyBytes))
+		require.NoError(t, err)
+		// t.Logf("GET StatusCode=%d, body=%s", res.StatusCode, string(bodyBytes))
 
 		bodyMap := map[string]any{}
 		err = json.Unmarshal(bodyBytes, &bodyMap)
-		if !assert.Nil(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, queryParams, bodyMap["args"])
 	}
 
@@ -297,11 +288,11 @@ func TestProxyServer(t *testing.T) {
 func TestProxyServer_error(t *testing.T) {
 	// build target
 	targetMux := http.NewServeMux()
-	targetMux.HandleFunc("/sleep-200ms", func(w http.ResponseWriter, r *http.Request) {
+	targetMux.HandleFunc("/sleep-200ms", func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	})
-	targetMux.HandleFunc("/location-unparseable", func(w http.ResponseWriter, r *http.Request) {
+	targetMux.HandleFunc("/location-unparseable", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Location", ":unparseable")
 		w.WriteHeader(http.StatusMovedPermanently)
 	})
@@ -311,17 +302,19 @@ func TestProxyServer_error(t *testing.T) {
 	// build proxyServer
 	proxyServer := &Server{
 		AutoRewrite: true,
-		TargetForReq: func(host, path string) (Target, bool) {
-			if path == "/not-found" {
+		TargetForReq: func(_, path string) (Target, bool) {
+			switch path {
+			case "/not-found":
 				return Target{}, false
-			} else if path == "/unparseable" {
+			case "/unparseable":
 				return Target{Target: ":unparseable"}, true
+			default:
+				return Target{Target: targetServer.URL}, true
 			}
-			return Target{Target: targetServer.URL}, true
 		},
 	}
-	proxyServer.ErrorHandler = func(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
-		//t.Logf("errorHandler recv: code=%d, kind=%s, err=%s", code, kind, err)
+	proxyServer.ErrorHandler = func(code int, _ string, w http.ResponseWriter, _ *http.Request, _ error) {
+		// t.Logf("errorHandler recv: code=%d, kind=%s, err=%s", code, kind, err)
 		w.WriteHeader(code)
 		w.Write([]byte(strconv.Itoa(code)))
 	}
@@ -333,40 +326,28 @@ func TestProxyServer_error(t *testing.T) {
 		defer func() { proxyServer.ErrorHandler = errorHandler }()
 
 		resp, err := server.Client().Get(server.URL + "/not-found")
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		bytes, err := io.ReadAll(resp.Body)
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Equal(t, http.StatusText(http.StatusNotFound), string(bytes))
 	})
 	t.Run("target-not-found", func(t *testing.T) {
 		resp, err := server.Client().Get(server.URL + "/not-found")
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		bytes, err := io.ReadAll(resp.Body)
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Equal(t, strconv.Itoa(http.StatusNotFound), string(bytes))
 	})
 	t.Run("target-unparseable", func(t *testing.T) {
 		resp, err := server.Client().Get(server.URL + "/unparseable")
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		bytes, err := io.ReadAll(resp.Body)
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
 		assert.Equal(t, strconv.Itoa(http.StatusBadGateway), string(bytes))
 	})
@@ -376,27 +357,19 @@ func TestProxyServer_error(t *testing.T) {
 		defer func() { proxyServer.ProxyTimeout = proxyTimeout }()
 
 		resp, err := server.Client().Get(server.URL + "/sleep-200ms")
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		bytes, err := io.ReadAll(resp.Body)
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
 		assert.Equal(t, strconv.Itoa(http.StatusGatewayTimeout), string(bytes))
 	})
 	t.Run("modifyResponse-location-unparseable", func(t *testing.T) {
 		resp, err := server.Client().Get(server.URL + "/location-unparseable")
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		bytes, err := io.ReadAll(resp.Body)
-		if !assert.NoError(t, err) {
-			return
-		}
+		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
 		assert.Equal(t, strconv.Itoa(http.StatusBadGateway), string(bytes))
 	})

@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/potoo0/configurable-http-proxy/lib"
-	"github.com/spf13/cobra"
 	log "log/slog"
 	"net"
 	"net/http"
@@ -15,6 +13,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/potoo0/configurable-http-proxy/lib"
 )
 
 type listenerConfig struct {
@@ -23,10 +25,10 @@ type listenerConfig struct {
 	timeout          int
 	keepAliveTimeout int
 
-	apiIp   string
+	apiIP   string
 	apiPort int
 
-	metricsIp   string
+	metricsIP   string
 	metricsPort int
 
 	redirectPort int
@@ -94,34 +96,34 @@ and CONFIGPROXY_AUTH_TOKEN to set a token for REST API authentication.`,
 	Run: run,
 }
 
-func run(cmd *cobra.Command, args []string) {
+func run(_ *cobra.Command, _ []string) {
 	options := initConfig()
 
 	proxy, err := lib.NewConfigurableProxy(options)
 	if err != nil {
 		panic(err)
 	}
-	proxyTlsCfg, err := tlsConfig(options.Ssl)
+	proxyTLSCfg, err := tlsConfig(options.Ssl)
 	if err != nil {
 		panic(fmt.Errorf("parsing proxy ssl error: %w", err))
 	}
-	apiTlsCfg, err := tlsConfig(options.ApiSsl)
+	apiTLSCfg, err := tlsConfig(options.APISsl)
 	if err != nil {
 		panic(fmt.Errorf("parsing api ssl error: %w", err))
 	}
-	go listen(proxyTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.ip, listenerCfg.port), listenerCfg.timeout, listenerCfg.keepAliveTimeout, proxy.ProxyServer.Handler())
-	go listen(apiTlsCfg, fmt.Sprintf("%s:%d", listenerCfg.apiIp, listenerCfg.apiPort), 0, 0, proxy.ApiServer.Handler())
+	go listen(proxyTLSCfg, fmt.Sprintf("%s:%d", listenerCfg.ip, listenerCfg.port), listenerCfg.timeout, listenerCfg.keepAliveTimeout, proxy.ProxyServer.Handler())
+	go listen(apiTLSCfg, fmt.Sprintf("%s:%d", listenerCfg.apiIP, listenerCfg.apiPort), 0, 0, proxy.APIServer.Handler())
 	if listenerCfg.metricsPort != 0 {
-		go listen(nil, fmt.Sprintf("%s:%d", listenerCfg.metricsIp, listenerCfg.metricsPort), 0, 0, proxy.MetricsServer)
+		go listen(nil, fmt.Sprintf("%s:%d", listenerCfg.metricsIP, listenerCfg.metricsPort), 0, 0, proxy.MetricsServer)
 	}
 
 	log.Info(fmt.Sprintf("Proxying %s://%s:%d to %s", schema(options.Ssl),
 		defaultIfEmpty(listenerCfg.ip, "*"), listenerCfg.port,
 		defaultIfEmpty(options.DefaultTarget, "(no default)")))
-	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.ApiSsl),
-		defaultIfEmpty(listenerCfg.apiIp, "*"), listenerCfg.apiPort))
+	log.Info(fmt.Sprintf("Proxy API at %s://%s:%d/api/routes", schema(options.APISsl),
+		defaultIfEmpty(listenerCfg.apiIP, "*"), listenerCfg.apiPort))
 	if listenerCfg.metricsPort != 0 {
-		log.Info(fmt.Sprintf("Serve metrics at %s://%s:%d/metrics", "http", listenerCfg.metricsIp, listenerCfg.metricsPort))
+		log.Info(fmt.Sprintf("Serve metrics at %s://%s:%d/metrics", "http", listenerCfg.metricsIP, listenerCfg.metricsPort))
 	}
 
 	// Redirect HTTP to HTTPS on the proxy's port
@@ -215,9 +217,9 @@ func init() {
 	// listener args
 	rootCmd.Flags().StringVar(&listenerCfg.ip, "ip", "", "Public-facing IP of the proxy")
 	rootCmd.Flags().IntVar(&listenerCfg.port, "port", 8000, "Public-facing port of the proxy")
-	rootCmd.Flags().StringVar(&listenerCfg.apiIp, "api-ip", "localhost", "Inward-facing IP for API requests")
+	rootCmd.Flags().StringVar(&listenerCfg.apiIP, "api-ip", "localhost", "Inward-facing IP for API requests")
 	rootCmd.Flags().IntVar(&listenerCfg.apiPort, "api-port", 0, "Inward-facing port for API requests (defaults to --port=value+1)")
-	rootCmd.Flags().StringVar(&listenerCfg.metricsIp, "metrics-ip", "", "IP for metrics server")
+	rootCmd.Flags().StringVar(&listenerCfg.metricsIP, "metrics-ip", "", "IP for metrics server")
 	rootCmd.Flags().IntVar(&listenerCfg.metricsPort, "metrics-port", 0, "Port of metrics server. Defaults to no metrics server")
 	rootCmd.Flags().IntVar(&listenerCfg.redirectPort, "redirect-port", 0, "Redirect HTTP requests on this port to the server on HTTPS")
 	rootCmd.Flags().IntVar(&listenerCfg.redirectTo, "redirect-to", 0, "Redirect HTTP requests from --redirect-port to this port")
@@ -281,13 +283,13 @@ func initConfig() *lib.Config {
 	cfg := new(lib.Config)
 	level, err := lib.ParseLevel(logLevel)
 	if err != nil {
-		panic(fmt.Errorf("invalid log level, %s", err))
+		panic(fmt.Errorf("invalid log level, %w", err))
 	}
 	lib.InitLogger(os.Stdout, level)
 
 	// ssl cipher
 	if sslCiphers == "" {
-		var rc4 = "!RC4"
+		rc4 := "!RC4"
 		if sslAllowRc4 {
 			rc4 = "RC4"
 		}
@@ -310,16 +312,16 @@ func initConfig() *lib.Config {
 
 	// ssl cfg for the API interface
 	if apiSslKey != "" || apiSslCert != "" {
-		cfg.ApiSsl = new(lib.SslConfig)
-		cfg.ApiSsl.Key = readFilePanicIfErr(apiSslKey)
-		cfg.ApiSsl.Passphrase = os.Getenv("CONFIGPROXY_API_SSL_KEY_PASSPHRASE")
-		cfg.ApiSsl.Cert = readFilePanicIfErr(apiSslCert)
-		cfg.ApiSsl.Ca = readFilePanicIfErr(apiSslCa)
-		cfg.ApiSsl.Dhparam = readFilePanicIfErr(sslDhparam)
-		cfg.ApiSsl.SecureProtocol = sslProtocol
-		cfg.ApiSsl.Ciphers = sslCiphers
-		cfg.ApiSsl.RequestCert = apiSslRequestCert
-		cfg.ApiSsl.RejectUnauthorized = apiSslRejectUnauthorized
+		cfg.APISsl = new(lib.SslConfig)
+		cfg.APISsl.Key = readFilePanicIfErr(apiSslKey)
+		cfg.APISsl.Passphrase = os.Getenv("CONFIGPROXY_API_SSL_KEY_PASSPHRASE")
+		cfg.APISsl.Cert = readFilePanicIfErr(apiSslCert)
+		cfg.APISsl.Ca = readFilePanicIfErr(apiSslCa)
+		cfg.APISsl.Dhparam = readFilePanicIfErr(sslDhparam)
+		cfg.APISsl.SecureProtocol = sslProtocol
+		cfg.APISsl.Ciphers = sslCiphers
+		cfg.APISsl.RequestCert = apiSslRequestCert
+		cfg.APISsl.RejectUnauthorized = apiSslRejectUnauthorized
 	}
 
 	// ssl cfg for the client interface
@@ -438,12 +440,12 @@ func writePidFile(pidFile string) error {
 	}
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
-	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o664)
 }
 
 func tlsConfig(sslConfig *lib.SslConfig) (*tls.Config, error) {
 	if sslConfig == nil {
 		return nil, nil
 	}
-	return sslConfig.TlsConfig(true)
+	return sslConfig.TLSConfig(true)
 }

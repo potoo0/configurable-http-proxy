@@ -66,10 +66,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: >
-            --exclude-use-default=true
-            --exclude='Error return value of .(w\.Write). is not checked'
-            --exclude='Error return value of `io\.Copy` is not checked'

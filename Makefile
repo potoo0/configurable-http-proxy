@@ -30,6 +30,9 @@ tidy: ## Tidy up the go modules
 dep: tidy ## Install dependencies
 	@go mod download
 
+fmt: ## Format code with golangci-lint
+	@golangci-lint fmt
+
 vet: dep ## Run go vet
 	@go vet ./...
 

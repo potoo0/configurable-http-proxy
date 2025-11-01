@@ -1,12 +1,14 @@
 package lib
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMetrics(t *testing.T) {
@@ -52,14 +54,10 @@ func TestNewMetrics(t *testing.T) {
 	}
 
 	resp, err := server.Client().Get(server.URL)
-	if !assert.NoError(t, err) {
-		t.FailNow()
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 	bytes, err := io.ReadAll(resp.Body)
-	if !assert.NoError(t, err) {
-		t.FailNow()
-	}
+	require.NoError(t, err)
 	for k, v := range expected {
 		for _, s := range v {
 			assert.Contains(t, string(bytes), s, "metrics="+k)
@@ -67,7 +65,7 @@ func TestNewMetrics(t *testing.T) {
 	}
 }
 
-func TestNewMockMetrics(t *testing.T) {
+func TestNewMockMetrics(_ *testing.T) {
 	m := NewMockMetrics()
 
 	m.apiRoute.WithLabelValues("200", "POST").Inc()

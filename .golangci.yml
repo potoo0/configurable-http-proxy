@@ -1,0 +1,61 @@
+version: "2"
+
+formatters:
+  enable:
+    - gci
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/potoo0/configurable-http-proxy)
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/potoo0/configurable-http-proxy
+
+linters:
+  # Keep this list sorted alphabetically
+  enable:
+    - errcheck
+    - errorlint
+    - exptostd
+    - fatcontext
+    - gocritic
+    - govet
+    - loggercheck
+    - misspell
+    - nilnesserr
+    - perfsprint
+    - predeclared
+    - revive
+    - sloglint
+    - testifylint
+    - unconvert
+    - unused
+    - usestdlibvars
+    - whitespace
+
+  exclusions:
+    rules:
+      - linters:
+          - errcheck
+        text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked
+      - linters:
+          - errcheck
+        path: _test.go
+      - linters:
+          - revive
+        text: exported (.+) should have comment( \(or a comment on this block\))? or be unexported
+      - linters:
+          - revive
+        text: 'package-comments: should have a package comment'
+    warn-unused: true
+  settings:
+    errcheck:
+      exclude-functions:
+        - io.Copy
+        - (net/http.ResponseWriter).Write

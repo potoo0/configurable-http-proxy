@@ -2,7 +2,6 @@ package lib
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigurableProxy_ErrorHandler(t *testing.T) {
@@ -28,9 +30,9 @@ func TestConfigurableProxy_ErrorHandler(t *testing.T) {
 
 	status := 400
 	p, err := NewConfigurableProxy(new(Config))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:8080/get", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/get", nil)
 	if err != nil {
 		t.Fatalf("http.NewRequestWithContext error: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestConfigurableProxy_ErrorHandler(t *testing.T) {
 		p.errorPath = tempDir
 
 		msg := "errorPath"
-		err = os.WriteFile(filepath.Join(tempDir, strconv.Itoa(status)+".html"), []byte(msg), 0644)
+		err = os.WriteFile(filepath.Join(tempDir, strconv.Itoa(status)+".html"), []byte(msg), 0o644)
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -79,12 +81,12 @@ func TestNewConfigurableProxy(t *testing.T) {
 	}
 
 	// build target server
-	targetServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//t.Logf("http request uri: %s", r.RequestURI)
+	targetServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// t.Logf("http request uri: %s", r.RequestURI)
 		w.WriteHeader(http.StatusOK)
 	}))
-	tlsConfig, err := cfg.TlsConfig(true)
-	assert.Nil(t, err)
+	tlsConfig, err := cfg.TLSConfig(true)
+	require.NoError(t, err)
 	targetServer.TLS = tlsConfig
 	targetServer.StartTLS()
 	defer targetServer.Close()
@@ -94,12 +96,12 @@ func TestNewConfigurableProxy(t *testing.T) {
 		ClientSsl:     &cfg,
 	}
 	p, err := NewConfigurableProxy(config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	proxyServer := httptest.NewServer(p.ProxyServer.Handler())
 	defer proxyServer.Close()
 
 	resp, err := proxyServer.Client().Get(proxyServer.URL + "/")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
@@ -109,15 +111,11 @@ func TestConfigurableProxy_MetricsServe(t *testing.T) {
 	p, err := NewConfigurableProxy(&Config{
 		EnableMetrics: true,
 	})
-	if !assert.NoError(t, err) {
-		return
-	}
+	require.NoError(t, err)
 	server := httptest.NewServer(p.MetricsServer)
 	defer server.Close()
 	resp, err := server.Client().Get(server.URL + "/metrics")
-	if !assert.NoError(t, err) {
-		return
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 	written, _ := io.Copy(io.Discard, resp.Body)
 	assert.NotEqual(t, 0, written)
@@ -125,9 +123,7 @@ func TestConfigurableProxy_MetricsServe(t *testing.T) {
 
 func TestConfigurableProxy_route(t *testing.T) {
 	p, err := NewConfigurableProxy(new(Config))
-	if !assert.NoError(t, err) {
-		return
-	}
+	require.NoError(t, err)
 
 	t.Run("add-get-remove", func(t *testing.T) {
 		// add
@@ -157,7 +153,7 @@ func TestConfigurableProxy_route(t *testing.T) {
 		defer p.removeRoute("/path2")
 
 		routes := p.getRoutes(0)
-		assert.Equal(t, 2, len(routes))
+		assert.Len(t, routes, 2)
 	})
 	t.Run("get-routes-by_inactiveSince", func(t *testing.T) {
 		routeData1 := map[string]any{"target": "t1"}
@@ -170,7 +166,7 @@ func TestConfigurableProxy_route(t *testing.T) {
 		defer p.removeRoute("/path2")
 
 		routes := p.getRoutes(inactiveSince)
-		assert.Equal(t, 1, len(routes))
+		assert.Len(t, routes, 1)
 		assert.True(t, equalOnLeft(routeData1, routes["/path1"]))
 	})
 }
@@ -183,7 +179,7 @@ func copyMap(src map[string]any) map[string]any {
 	return dst
 }
 
-func equalOnLeft(left map[string]any, right map[string]any) bool {
+func equalOnLeft(left, right map[string]any) bool {
 	for k, v := range left {
 		if rv, exists := right[k]; !exists || rv != v {
 			return false
