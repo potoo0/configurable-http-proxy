@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: go release matrix
-        uses: wangyoucao577/go-release-action@v1.51
+        uses: wangyoucao577/go-release-action@v1.53
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goversion: "go.mod"
