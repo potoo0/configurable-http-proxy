@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-type ApiServer struct {
+type APIServer struct {
 	config *ConfigurableProxy
 }
 
-func NewApiServer(config *ConfigurableProxy) *ApiServer {
-	return &ApiServer{config: config}
+func NewAPIServer(config *ConfigurableProxy) *APIServer {
+	return &APIServer{config: config}
 }
 
-func (server *ApiServer) Handler() http.Handler {
+func (server *APIServer) Handler() http.Handler {
 	router := http.NewServeMux()
 
 	// path allow `/a/b/c`...
@@ -39,11 +39,11 @@ func (server *ApiServer) Handler() http.Handler {
 }
 
 // handle GET /{path?}/
-func (server *ApiServer) getRoute(w http.ResponseWriter, r *http.Request) {
+func (server *APIServer) getRoute(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 	if path != "" {
 		if route, exists := server.config.getRoute(path); exists {
-			WriteJson(w, route)
+			WriteJSON(w, route)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -66,17 +66,17 @@ func (server *ApiServer) getRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	routes := server.config.getRoutes(inactiveSince)
-	WriteJson(w, routes)
+	WriteJSON(w, routes)
 }
 
 // handle POST /{path?}/
-func (server *ApiServer) addRoute(w http.ResponseWriter, r *http.Request) {
+func (server *APIServer) addRoute(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 	if path == "" {
 		path = "/"
 	}
 	// parse body
-	data, err := ParseJson(r.Body)
+	data, err := ParseJSON(r.Body)
 	if err != nil {
 		fail(w, r, http.StatusBadRequest, "Body not valid JSON: "+err.Error())
 		return
@@ -102,7 +102,7 @@ func (server *ApiServer) addRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // handle DELETE /{path?}/
-func (server *ApiServer) deleteRoute(w http.ResponseWriter, r *http.Request) {
+func (server *APIServer) deleteRoute(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 	exists := server.config.removeRoute(path)
 	if !exists {
@@ -123,7 +123,7 @@ func parseTime(raw string) (time.Time, error) {
 
 /* -------------------------- middleware start -------------------------- */
 
-func (server *ApiServer) LoggerMiddleware(next http.Handler) http.HandlerFunc {
+func (server *APIServer) LoggerMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lrw := newLoggingResponseWriter(w)
 		next.ServeHTTP(lrw, r)
@@ -142,7 +142,7 @@ func (server *ApiServer) LoggerMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-func (server *ApiServer) AuthMiddleware(next http.Handler) http.HandlerFunc {
+func (server *APIServer) AuthMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authRaw := r.Header.Get("authorization")
 		auth, _ := strings.CutPrefix(authRaw, "token")
@@ -151,7 +151,7 @@ func (server *ApiServer) AuthMiddleware(next http.Handler) http.HandlerFunc {
 			if msg == "" {
 				msg = "no authorization"
 			}
-			log.Debug(fmt.Sprintf("Rejecting API request from: %s", msg))
+			log.Debug("Rejecting API request from: " + msg)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -200,7 +200,7 @@ func (lrw *loggingResponseWriter) WriteLogMsg(msg string) {
 	lrw.logMsg = msg
 }
 
-func fail(w http.ResponseWriter, r *http.Request, code int, msg string) {
+func fail(w http.ResponseWriter, _ *http.Request, code int, msg string) {
 	if msgW, ok := w.(logMsgWriter); ok {
 		msgW.WriteLogMsg(msg)
 	}

@@ -124,7 +124,7 @@ func (s *Server) modifyResponse(r *http.Response) (err error) {
 	if s.AutoRewrite && r.Header.Get("Location") != "" && redirectRegex.MatchString(strconv.Itoa(r.StatusCode)) {
 		redirectTo, err := url.Parse(r.Header.Get("Location"))
 		if err != nil {
-			return fmt.Errorf("failed to parse Location header: %v", err)
+			return fmt.Errorf("failed to parse Location header: %w", err)
 		}
 		if redirectTo.Host != r.Request.URL.Host {
 			return nil
@@ -158,9 +158,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.updateLastActivity(targetInfo.Prefix)
 	// websocket 时此处会先
-	targetUrlRaw := targetInfo.Target
-	log.Debug(fmt.Sprintf("PROXY %s %s to %s", kind, r.URL, targetUrlRaw))
-	targetUrl, err := url.Parse(targetUrlRaw)
+	targetURLRaw := targetInfo.Target
+	log.Debug(fmt.Sprintf("PROXY %s %s to %s", kind, r.URL, targetURLRaw))
+	targetURL, err := url.Parse(targetURLRaw)
 	if err != nil {
 		s.handleError(http.StatusBadGateway, kind, w, r, err)
 		return
@@ -177,11 +177,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.ProxyTimeout)*time.Millisecond)
 		defer cancel()
 	}
-	ctx = context.WithValue(ctx, ctxTargetKey{}, targetUrl)
+	ctx = context.WithValue(ctx, ctxTargetKey{}, targetURL)
 	ctx = context.WithValue(ctx, ctxPrefixKey{}, targetInfo.Prefix)
 
 	rn := r.WithContext(ctx)
-	s.handleHttp(w, rn)
+	s.handleHTTP(w, rn)
 }
 
 // proxyKind returns the kind of proxy to use, ws or http
@@ -211,7 +211,7 @@ func (s *Server) updateLastActivity(path string) {
 	}
 }
 
-func (s *Server) handleHttp(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if healthCheck(w, r) {
 		return
 	}
@@ -230,7 +230,7 @@ func (s *Server) handleError(code int, kind string, w http.ResponseWriter, r *ht
 	errorHandler(code, kind, w, r, err)
 }
 
-func (s *Server) defaultErrorHandler(code int, kind string, w http.ResponseWriter, r *http.Request, err error) {
+func (s *Server) defaultErrorHandler(code int, _ string, w http.ResponseWriter, r *http.Request, err error) {
 	var errMsg string
 	if err != nil {
 		errMsg = err.Error()
@@ -248,7 +248,7 @@ func (s *Server) defaultErrorHandler(code int, kind string, w http.ResponseWrite
 func healthCheck(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path == "/_chp_healthz" {
 		w.Header().Set("Content-Type", "application/json")
-		//w.WriteHeader(http.StatusOK) // unnecessary
+		// w.WriteHeader(http.StatusOK) // unnecessary
 		w.Write([]byte(`{"status": "OK"}`))
 		return true
 	}

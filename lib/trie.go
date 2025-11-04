@@ -6,9 +6,7 @@ import (
 	"strings"
 )
 
-var (
-	slashesExp = regexp.MustCompile("^/+|/+$")
-)
+var slashesExp = regexp.MustCompile("^/+|/+$")
 
 // trimPrefix cleanup prefix form: /foo/bar
 func trimPrefix(prefix string) string {
@@ -65,7 +63,7 @@ func toPathParts(path any) []string {
 }
 
 // Add data to a node in the trie at path
-func (trie *URLTrie) Add(path any, data any) {
+func (trie *URLTrie) Add(path, data any) {
 	pathParts := toPathParts(path)
 	if len(pathParts) == 0 {
 		trie.data = data
@@ -81,7 +79,7 @@ func (trie *URLTrie) Add(path any, data any) {
 			curPrefix = trie.prefix + "/"
 		}
 		trie.branches[prefix] = NewURLTrie(curPrefix + prefix)
-		trie.size += 1
+		trie.size++
 	}
 	trie.branches[prefix].Add(rest, data)
 }
@@ -103,7 +101,7 @@ func (trie *URLTrie) Remove(path any) {
 	child.Remove(rest)
 	if child.size == 0 && child.data == nil {
 		delete(trie.branches, prefix)
-		trie.size -= 1
+		trie.size--
 	}
 }
 
@@ -133,8 +131,8 @@ func (trie *URLTrie) Get(path any) *URLTrie {
 	if node != nil {
 		// found a more specific leaf
 		return node
-	} else {
-		// I'm still the most specific match
-		return me
 	}
+
+	// I'm still the most specific match
+	return me
 }

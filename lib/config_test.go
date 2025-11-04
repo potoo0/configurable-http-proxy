@@ -3,13 +3,15 @@ package lib
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCipherSuites(t *testing.T) {
@@ -29,29 +31,29 @@ func TestTlsConfig_Ca(t *testing.T) {
 	}
 
 	// build server
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//t.Logf("http request uri: %s", r.RequestURI)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// t.Logf("http request uri: %s", r.RequestURI)
 		w.WriteHeader(http.StatusOK)
 	})
 	server := httptest.NewUnstartedServer(handler)
-	tlsConfig, err := cfg.TlsConfig(true)
-	assert.Nil(t, err)
+	tlsConfig, err := cfg.TLSConfig(true)
+	require.NoError(t, err)
 	server.TLS = tlsConfig
 	server.StartTLS()
 	defer server.Close()
 
 	t.Run("without-ca", func(t *testing.T) {
 		cfg.Ca = nil
-		tlsConfig, err = cfg.TlsConfig(false)
-		assert.NoError(t, err)
+		tlsConfig, err = cfg.TLSConfig(false)
+		require.NoError(t, err)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConfig
 		client := &http.Client{Transport: transport}
 
-		req, _ := http.NewRequest("GET", server.URL+"/a", nil)
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/a", nil)
 		_, err := client.Do(req)
-		assert.Error(t, err)
+		require.Error(t, err)
 
 		var (
 			urlError  *url.Error
@@ -64,16 +66,16 @@ func TestTlsConfig_Ca(t *testing.T) {
 	})
 	t.Run("with-ca", func(t *testing.T) {
 		cfg.Ca = RootCert
-		tlsConfig, err = cfg.TlsConfig(false)
-		assert.NoError(t, err)
+		tlsConfig, err = cfg.TLSConfig(false)
+		require.NoError(t, err)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConfig
 		client := &http.Client{Transport: transport}
 
-		req, _ := http.NewRequest("GET", server.URL+"/a", nil)
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/a", nil)
 		resp, err := client.Do(req)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		io.Copy(io.Discard, resp.Body)
 	})
@@ -89,42 +91,42 @@ func TestTlsConfig_SecureProtocol(t *testing.T) {
 	}
 
 	// build server
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//t.Logf("http request uri: %s", r.RequestURI)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// t.Logf("http request uri: %s", r.RequestURI)
 		w.WriteHeader(http.StatusOK)
 	})
 	server := httptest.NewUnstartedServer(handler)
-	tlsConfig, err := cfg.TlsConfig(true)
-	assert.Nil(t, err)
+	tlsConfig, err := cfg.TLSConfig(true)
+	require.NoError(t, err)
 	server.TLS = tlsConfig
 	server.StartTLS()
 	defer server.Close()
 
 	t.Run("client-default", func(t *testing.T) {
 		cfg.SecureProtocol = ""
-		tlsConfig, err = cfg.TlsConfig(false)
-		assert.NoError(t, err)
+		tlsConfig, err = cfg.TLSConfig(false)
+		require.NoError(t, err)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConfig
 		client := &http.Client{Transport: transport}
 
-		req, _ := http.NewRequest("GET", server.URL+"/a", nil)
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/a", nil)
 		resp, err := client.Do(req)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		io.Copy(io.Discard, resp.Body)
 	})
 	t.Run("client-tls1.1", func(t *testing.T) {
 		cfg.SecureProtocol = "TLSv1_1"
-		tlsConfig, err = cfg.TlsConfig(false)
-		assert.NoError(t, err)
+		tlsConfig, err = cfg.TLSConfig(false)
+		require.NoError(t, err)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConfig
 		client := &http.Client{Transport: transport}
 
-		req, _ := http.NewRequest("GET", server.URL+"/a", nil)
+		req, _ := http.NewRequest(http.MethodGet, server.URL+"/a", nil)
 		_, err = client.Do(req)
 		assert.ErrorContains(t, err, "remote error: tls: protocol version not supported")
 	})

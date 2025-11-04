@@ -28,6 +28,6 @@ func InitLogger(w io.Writer, level slog.Leveler) {
 
 func ParseLevel(s string) (slog.Leveler, error) {
 	var level slog.Level
-	var err = level.UnmarshalText([]byte(s))
+	err := level.UnmarshalText([]byte(s))
 	return level, err
 }

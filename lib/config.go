@@ -5,10 +5,12 @@ import (
 	"crypto/x509"
 	"embed"
 	"encoding/pem"
+	"errors"
 	"fmt"
-	"github.com/youmark/pkcs8"
 	log "log/slog"
 	"strings"
+
+	"github.com/youmark/pkcs8"
 )
 
 var DefaultSslCiphers = []string{
@@ -42,7 +44,7 @@ var DefaultErrorPath embed.FS
 
 type Config struct {
 	Ssl       *SslConfig
-	ApiSsl    *SslConfig
+	APISsl    *SslConfig
 	ClientSsl *SslConfig
 
 	AuthToken     string
@@ -97,8 +99,8 @@ type SslConfig struct {
 	RejectUnauthorized bool
 }
 
-// TlsConfig returns a tls.Config instance based on the sslCfg.
-func (cfg *SslConfig) TlsConfig(isServer bool) (*tls.Config, error) {
+// TLSConfig returns a tls.Config instance based on the sslCfg.
+func (cfg *SslConfig) TLSConfig(isServer bool) (*tls.Config, error) {
 	tlsConfig := &tls.Config{}
 	var certificates []tls.Certificate
 	if cfg.Key != nil && cfg.Cert != nil {
@@ -125,13 +127,13 @@ func (cfg *SslConfig) TlsConfig(isServer bool) (*tls.Config, error) {
 		}
 	}
 	// for security, skip setup ca
-	//else if certificates != nil {
-	//	certificate, err := x509.ParseCertificate(certificates[0].Certificate[0])
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	certPool.AddCert(certificate)
-	//}
+	// else if certificates != nil {
+	// 	certificate, err := x509.ParseCertificate(certificates[0].Certificate[0])
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	certPool.AddCert(certificate)
+	// }
 
 	if cfg.Dhparam != nil {
 		log.Warn("Dhparam is not supported, ignored")
@@ -144,7 +146,7 @@ func (cfg *SslConfig) TlsConfig(isServer bool) (*tls.Config, error) {
 		}
 		if len(suites) > 0 {
 			log.Warn("using golang's default cipher suites")
-			//TlsConfig.CipherSuites = suites
+			// TLSConfig.CipherSuites = suites
 		}
 	}
 	if cfg.SecureProtocol != "" {
@@ -158,7 +160,7 @@ func (cfg *SslConfig) TlsConfig(isServer bool) (*tls.Config, error) {
 	}
 
 	// client config
-	//InsecureSkipVerify: true,
+	// InsecureSkipVerify: true,
 	return tlsConfig, nil
 }
 
@@ -166,9 +168,8 @@ func parseClientAuth(requestCert, rejectUnauthorized bool) tls.ClientAuthType {
 	if requestCert {
 		if rejectUnauthorized {
 			return tls.VerifyClientCertIfGiven
-		} else {
-			return tls.RequestClientCert
 		}
+		return tls.RequestClientCert
 	}
 	return tls.NoClientCert
 }
@@ -187,13 +188,13 @@ func parseCipherSuites(ciphers string) ([]uint16, []string) {
 
 	suitesRaw := strings.Split(ciphers, ":")
 	suitesRawUnsupported := make([]string, 0, len(suitesRaw))
-	suiteIds := make([]uint16, 0, len(suitesRaw))
+	suiteIDs := make([]uint16, 0, len(suitesRaw))
 	for _, suite := range suitesRaw {
 		unsupported := true
 		if !strings.HasPrefix(suite, "!") {
 			suiteRaw := convertCipherSuiteName(suite)
 			if id, exists := suitesByName[suiteRaw]; exists {
-				suiteIds = append(suiteIds, id)
+				suiteIDs = append(suiteIDs, id)
 				unsupported = false
 			}
 		}
@@ -203,12 +204,12 @@ func parseCipherSuites(ciphers string) ([]uint16, []string) {
 		}
 	}
 
-	return suiteIds, suitesRawUnsupported
+	return suiteIDs, suitesRawUnsupported
 }
 
 // convertCipherSuiteName convert nodejs cipher suite name to the format used by Go.
 func convertCipherSuiteName(name string) string {
-	name = strings.Replace(name, "-", "_", -1)
+	name = strings.ReplaceAll(name, "-", "_")
 	name = strings.Replace(name, "AES128", "AES_128", 1)
 	name = strings.Replace(name, "AES256", "AES_256", 1)
 	if !strings.HasPrefix(name, "TLS_") {
@@ -224,14 +225,16 @@ func convertCipherSuiteName(name string) string {
 }
 
 func parseSSLProtocolMethods(secureProtocol string) uint16 {
-	if strings.EqualFold(secureProtocol, "TLSv1_1") {
+	switch strings.ToLower(secureProtocol) {
+	case "tlsv1_1":
 		return tls.VersionTLS11
-	} else if strings.EqualFold(secureProtocol, "TLSv1_2") {
+	case "tlsv1_2":
 		return tls.VersionTLS12
-	} else if strings.EqualFold(secureProtocol, "TLSv1_3") {
+	case "tlsv1_3":
 		return tls.VersionTLS13
+	default:
+		return 0
 	}
-	return 0
 }
 
 // parseKeyPEM read and decrypt key, returns PEM-encoded bytes.
@@ -240,7 +243,7 @@ func parseKeyPEM(bytes []byte, password string) ([]byte, error) {
 	// read key and try decrypt
 	keyBlockMayEnc, _ := pem.Decode(bytes)
 	if keyBlockMayEnc == nil {
-		return nil, fmt.Errorf("failed to decode PEM data")
+		return nil, errors.New("failed to decode PEM data")
 	}
 	keyBlock, err := pkcs8.ParsePKCS8PrivateKey(keyBlockMayEnc.Bytes, []byte(password))
 	if err != nil {

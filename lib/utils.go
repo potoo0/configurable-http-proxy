@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-func WriteJson(w http.ResponseWriter, data interface{}) {
+func WriteJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	bytes, err := json.Marshal(data)
 	if err != nil {
@@ -16,7 +16,7 @@ func WriteJson(w http.ResponseWriter, data interface{}) {
 	w.Write(bytes)
 }
 
-func ParseJson(body io.Reader) (map[string]any, error) {
+func ParseJSON(body io.Reader) (map[string]any, error) {
 	decoder := json.NewDecoder(body)
 	data := make(map[string]any)
 	err := decoder.Decode(&data)

@@ -1,9 +1,10 @@
 package lib
 
 import (
-	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMemoryStore_Get(t *testing.T) {
@@ -45,7 +46,7 @@ func TestMemoryStore_GetAll(t *testing.T) {
 		subject.Add("/myOtherRoute", data2)
 
 		routes := subject.GetAll()
-		assert.Equal(t, 2, len(routes))
+		assert.Len(t, routes, 2)
 		assert.Equal(t, data1, routes["/myRoute"])
 		assert.Equal(t, data2, routes["/myOtherRoute"])
 	})
@@ -53,7 +54,7 @@ func TestMemoryStore_GetAll(t *testing.T) {
 	t.Run("returns a blank object when no routes defined", func(t *testing.T) {
 		subject := NewMemoryStore()
 		routes := subject.GetAll()
-		assert.Equal(t, 0, len(routes))
+		assert.Empty(t, routes)
 	})
 }
 
@@ -104,7 +105,7 @@ func TestMemoryStore_Remove(t *testing.T) {
 	})
 }
 
-func TestMemoryStoreConcurrentRW(t *testing.T) {
+func TestMemoryStoreConcurrentRW(_ *testing.T) {
 	var subject BaseStore = NewMemoryStore()
 	data := map[string]any{"test": "value"}
 

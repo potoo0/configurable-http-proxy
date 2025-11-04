@@ -1,14 +1,15 @@
 package lib
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_parseTime(t *testing.T) {
-
-	var testCases = []struct {
+	testCases := []struct {
 		raw string
 
 		year  int
@@ -53,32 +54,30 @@ func Test_parseTime(t *testing.T) {
 			zone: 8,
 		},
 		// cannot parse ...
-		//{
-		//	raw:  "2024-07-25T20:40:11",
-		//	year: 2024, month: 7, day: 25,
-		//	hour: 20, minute: 40, second: 11,
-		//},
-		//{
-		//	raw:  "2024-07-25T20:40",
-		//	year: 2024, month: 7, day: 25,
-		//	hour: 20, minute: 40,
-		//},
-		//{
-		//	raw:  "2024-07-25",
-		//	year: 2024, month: 7, day: 25,
-		//	hour: 20, minute: 40,
-		//},
-		//{
+		// {
+		// 	raw:  "2024-07-25T20:40:11",
+		// 	year: 2024, month: 7, day: 25,
+		// 	hour: 20, minute: 40, second: 11,
+		// },
+		// {
+		// 	raw:  "2024-07-25T20:40",
+		// 	year: 2024, month: 7, day: 25,
+		// 	hour: 20, minute: 40,
+		// },
+		// {
+		// 	raw:  "2024-07-25",
+		// 	year: 2024, month: 7, day: 25,
+		// 	hour: 20, minute: 40,
+		// },
+		// {
 		//	raw:  "2024",
 		//	year: 2024,
-		//},
+		// },
 	}
 
 	for _, c := range testCases {
 		parsed, err := parseTime(c.raw)
-		if !assert.NoError(t, err) {
-			continue
-		}
+		require.NoError(t, err)
 		assert.Equal(t, c.year, parsed.Year(), "year mismatch")
 		assert.Equal(t, time.Month(c.month), parsed.Month(), "month mismatch")
 		assert.Equal(t, c.day, parsed.Day(), "day mismatch")
@@ -87,6 +86,6 @@ func Test_parseTime(t *testing.T) {
 		assert.Equal(t, c.second, parsed.Second(), "second mismatch")
 		assert.Equal(t, c.milliSecond*1e6, parsed.Nanosecond(), "millisecond mismatch")
 		_, z := parsed.Zone()
-		assert.Equal(t, c.zone, float64(z)/3600, "zone mismatch")
+		assert.InDelta(t, c.zone, float64(z)/3600, 1e-6, "zone mismatch")
 	}
 }

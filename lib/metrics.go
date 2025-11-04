@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-type metrics struct {
+type Metrics struct {
 	apiRoute             *prometheus.CounterVec
 	findTarget           prometheus.Summary
 	lastActivityUpdating prometheus.Summary
@@ -13,8 +13,8 @@ type metrics struct {
 	proxyResponses       *prometheus.CounterVec
 }
 
-func NewMetrics(reg prometheus.Registerer) *metrics {
-	m := &metrics{
+func NewMetrics(reg prometheus.Registerer) *Metrics {
+	m := &Metrics{
 		apiRoute: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "api_route",
 			Help: "Count of API requests, partitioned by status code and HTTP method.",
@@ -48,8 +48,8 @@ func NewMetrics(reg prometheus.Registerer) *metrics {
 	return m
 }
 
-func NewMockMetrics() *metrics {
-	m := &metrics{
+func NewMockMetrics() *Metrics {
+	m := &Metrics{
 		apiRoute: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "api_route",
 			Help: "Count of API requests, partitioned by status code and HTTP method.",

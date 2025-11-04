@@ -3,9 +3,6 @@ package lib
 import (
 	"errors"
 	"fmt"
-	"github.com/potoo0/configurable-http-proxy/lib/proxy"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	log "log/slog"
 	"net/http"
@@ -15,6 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/potoo0/configurable-http-proxy/lib/proxy"
 )
 
 type ConfigurableProxy struct {
@@ -25,9 +27,9 @@ type ConfigurableProxy struct {
 	client      *http.Client
 
 	routes  BaseStore
-	metrics *metrics
+	metrics *Metrics
 
-	ApiServer     *ApiServer
+	APIServer     *APIServer
 	ProxyServer   *proxy.Server
 	MetricsServer http.Handler
 }
@@ -40,7 +42,7 @@ func loadStorage(options *Config) *MemoryStore {
 }
 
 func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
-	var p = new(ConfigurableProxy)
+	p := new(ConfigurableProxy)
 	p.routes = loadStorage(config)
 	p.authToken = config.AuthToken
 	p.hostRouting = config.HostRouting
@@ -62,7 +64,7 @@ func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
 		p.addRoute("/", map[string]any{"target": config.DefaultTarget})
 	}
 	if config.ClientSsl != nil {
-		tlsConfig, err := config.ClientSsl.TlsConfig(false)
+		tlsConfig, err := config.ClientSsl.TLSConfig(false)
 		if err != nil {
 			return nil, fmt.Errorf("parsing client ssl error: %w", err)
 		}
@@ -71,7 +73,7 @@ func NewConfigurableProxy(config *Config) (*ConfigurableProxy, error) {
 		p.client = &http.Client{Transport: transport}
 	}
 
-	p.ApiServer = NewApiServer(p)
+	p.APIServer = NewAPIServer(p)
 
 	p.ProxyServer = &proxy.Server{
 		Secure:          config.Secure,
@@ -131,7 +133,7 @@ func (p *ConfigurableProxy) handleProxyError(code int, kind string, w http.Respo
 	}
 }
 
-func (p *ConfigurableProxy) handleErrorTarget(code int, kind string, w http.ResponseWriter, r *http.Request) error {
+func (p *ConfigurableProxy) handleErrorTarget(code int, _ string, w http.ResponseWriter, r *http.Request) error {
 	urlSpec, err := url.Parse(p.errorTarget)
 	// error request is $errorTarget/$code?url=$requestUrl
 	if err != nil {
@@ -141,17 +143,17 @@ func (p *ConfigurableProxy) handleErrorTarget(code int, kind string, w http.Resp
 	qs.Set("url", r.RequestURI)
 	urlSpec.RawQuery = qs.Encode()
 	if strings.HasSuffix(urlSpec.Path, "/") {
-		urlSpec.Path = urlSpec.Path + strconv.Itoa(code)
+		urlSpec.Path += strconv.Itoa(code)
 	} else {
-		urlSpec.Path = urlSpec.Path + "/" + strconv.Itoa(code)
+		urlSpec.Path += "/" + strconv.Itoa(code)
 	}
-	log.Debug(fmt.Sprintf("Requesting custom error page: %s", urlSpec.String()))
+	log.Debug(fmt.Sprintf("Requesting custom error page: %s", urlSpec))
 
 	client := p.client
 	if client == nil {
 		client = http.DefaultClient
 	}
-	req, err := http.NewRequestWithContext(r.Context(), "GET", urlSpec.String(), nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, urlSpec.String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to new request for error target: %w", err)
 	}
@@ -173,7 +175,7 @@ func (p *ConfigurableProxy) handleErrorTarget(code int, kind string, w http.Resp
 	return nil
 }
 
-func (p *ConfigurableProxy) handleErrorPath(code int, kind string, w http.ResponseWriter, r *http.Request) error {
+func (p *ConfigurableProxy) handleErrorPath(code int, _ string, w http.ResponseWriter, _ *http.Request) error {
 	filename := strconv.Itoa(code) + ".html"
 	bytes, err := p.getErrorFile(filename)
 	if err != nil {
@@ -234,7 +236,7 @@ func (p *ConfigurableProxy) addRoute(path string, data map[string]any) {
 // remove a route from the routing table
 func (p *ConfigurableProxy) removeRoute(path string) bool {
 	if _, ok := p.routes.Get(path); ok {
-		log.Info(fmt.Sprintf("Removing route %s", path))
+		log.Info("Removing route " + path)
 		p.routes.Remove(path)
 		return true
 	}
@@ -278,7 +280,7 @@ func (p *ConfigurableProxy) targetForReq(host, path string) (target proxy.Target
 	fullpath := basePath + path
 	urlTrie := p.routes.GetTarget(fullpath)
 	if urlTrie == nil {
-		return
+		return target, exists
 	}
 	target.Target = urlTrie.data.(map[string]any)["target"].(string)
 	target.Prefix = urlTrie.prefix
