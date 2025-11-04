@@ -1,7 +1,18 @@
+## v0.1.6 - 2025-11-04
+
+- Upgrade Go version.
+- Upgrade dependencies.
+- Resolve golangci-lint issues to ensure code quality.
+
+## v0.1.5 - 2025-01-23
+
+- Upgrade Go version.
+- Upgrade dependencies.
+
 ## v0.1.4
 
-- fix get routes by inactiveSince query param
-- fix MemoryStore data race
+- Fix get routes by inactiveSince query param
+- Fix MemoryStore data race
 
 ## v0.1.3
 
